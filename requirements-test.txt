@@ -1,0 +1,2 @@
+# Backend acceptance tests (install after requirements.txt)
+httpx>=0.28,<1

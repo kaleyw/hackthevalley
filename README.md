@@ -1,5 +1,10 @@
 # Hack the Valley: Fall Alerts
 
+TTC incident maps and restricted responder sharing: see [the map demo guide](docs/TTC_MAP_DEMO.md)
+for setup, camera location configuration, simulated train controls, security boundaries,
+and verification. Existing escalation remains log/dashboard-only; no emergency calls
+or outbound map delivery are configured.
+
 A fixed security camera detects when someone collapses or falls and doesn't get up, then starts a welfare check that a responder has to acknowledge. Built for Project KAZE: helping people who can no longer ask for help themselves.
 
 ```

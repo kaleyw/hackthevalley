@@ -22,6 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from . import db
+from . import maps
 
 DEDUP_WINDOW = timedelta(minutes=2)  # one alert per ongoing event for the same person/camera
 ACK_TIMEOUT = timedelta(seconds=int(os.getenv("ACK_TIMEOUT_SECONDS", 30)))          # nobody accepted
@@ -101,6 +102,10 @@ async def escalate(event_id, reason, actor="system"):
     level = min(event["escalation_level"] + 1, 2)
     db.update_event(event_id, f"escalated: {ESCALATION_NAMES[level]}", actor, reason, escalation_level=level)
     await hub.broadcast({"kind": "updated", "event": db.get_event(event_id)})
+    try:
+        maps.on_escalation(event_id)
+    except Exception:
+        log.exception("Map handoff preparation failed; escalation already completed")
 
 
 async def watchdog():
@@ -134,11 +139,20 @@ async def watchdog_pass(state):
 @asynccontextmanager
 async def lifespan(_):
     db.init()
+    try:
+        maps.store.init()
+        maps.store.simulation_mode(maps.provider.mode)
+    except Exception:
+        log.exception("Map storage unavailable; existing alerts continue")
     task = asyncio.create_task(watchdog())
+    map_task = asyncio.create_task(maps.train_loop())
     yield
     task.cancel()
+    map_task.cancel()
     with suppress(asyncio.CancelledError):
         await task
+    with suppress(asyncio.CancelledError):
+        await map_task
 
 
 app = FastAPI(title="Hack the Valley collapse alerts", lifespan=lifespan)
@@ -160,6 +174,10 @@ async def create_event(e: EventIn):
     details = {"urgency": e.urgency, "summary": e.summary, "reasons": e.reasons, "metrics": e.metrics}
     event_id = db.create_event(e.camera_id, e.location, e.type, e.track_id, e.detected_at,
                                e.went_down_at, details)
+    try:
+        maps.capture(db.get_event(event_id))
+    except Exception:
+        log.exception("Map snapshot unavailable; incident creation continues")
     await hub.broadcast({"kind": "created", "event": db.get_event(event_id)})
     return {"id": event_id, "duplicate": False}
 
@@ -293,3 +311,6 @@ async def ws(websocket: WebSocket):
             await websocket.receive_text()  # keep the connection open; we only push
     except WebSocketDisconnect:
         hub.clients.discard(websocket)
+
+
+app.include_router(maps.router)
