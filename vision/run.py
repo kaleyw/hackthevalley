@@ -53,6 +53,14 @@ def send_help_detected(event_id):
         print(f"[event] couldn't report help for event {event_id}: {e}")
 
 
+def send_got_up(event_id):
+    try:
+        requests.post(f"{config.BACKEND_URL}/events/{event_id}/got-up", timeout=2).raise_for_status()
+        print(f"[event] person got up after the alert (event {event_id}); staff still notified")
+    except requests.RequestException as e:
+        print(f"[event] couldn't report that the person got up (event {event_id}): {e}")
+
+
 def heartbeat_loop(stop):
     """Tell the backend this camera is alive, so the dashboard can warn when it isn't."""
     while not stop.wait(config.HEARTBEAT_SECONDS):
@@ -79,6 +87,7 @@ def main():
     model = YOLO(args.model)
     detector = FallDetector()
     helpers = HelpWatcher()
+    alerted_events = {}  # track ID -> backend event ID, for people with an alert sent
     stop = threading.Event()
     threading.Thread(target=heartbeat_loop, args=(stop,), daemon=True).start()
     start = time.monotonic()
@@ -118,10 +127,16 @@ def main():
                                             xyxy[j], box_in_frame=in_frame)
                     for old_id, new_id in detector.pop_handoffs():
                         helpers.rename(old_id, new_id)
+                        if old_id in alerted_events:
+                            alerted_events[new_id] = alerted_events.pop(old_id)
                         last_state[new_id] = last_state.pop(old_id, MONITORING)
                         print(f"[#{new_id}] same person as #{old_id} (tracker changed their ID); countdown kept")
                     if alert and (event_id := send_event(alert)) is not None:
                         helpers.watch(tid, event_id, xyxy[j], t)
+                        alerted_events[tid] = event_id
+                    for up_id in detector.pop_got_up():
+                        if up_id in alerted_events:
+                            send_got_up(alerted_events.pop(up_id))
 
                     state = detector.state(tid)
                     if state != last_state.get(tid, MONITORING):

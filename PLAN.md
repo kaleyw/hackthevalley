@@ -82,6 +82,19 @@
 - [ ] Test camera-confirmed help live: teammate lies down, another walks over and kneels beside them
 - [ ] Put the "help reached" numbers from our tests on the results slide
 
+## 4c. Speaker for bystanders
+- [x] Announce "someone near [location] may need help" through the Mac's speaker (or a JBL) when an alert fires
+- [x] Repeat every 20 s until someone is with them; "Thank you, help has arrived" then stop
+- [x] Location only, never a description of the person or a guess at the cause
+- [x] Silence button on the dashboard for false alarms
+- [x] Several people down at one location announced together; each case getting help announced separately
+- [x] Dashboard dings for security: new alert (repeats every 5 s until accepted), escalation, camera offline
+- [x] Person gets up after the alert: speaker tells bystanders, alert stays open for staff; down again is re-announced
+- [ ] Set CAMERA_LOCATION in .env to the spoken demo location
+- [ ] Demo: person lies down → speaker announces → "bystander" walks over and stays 10 s → speaker thanks them
+- [ ] Stretch: name zones within the camera view ("by the elevator", "by the fare gates")
+- [ ] Stretch: Google Home / Nest casting (test on a phone hotspot first)
+
 ## 5. Responder dashboard
 - [x] Live list of active alerts and history
 - [x] Urgency badge and "Why this alert" list on each alert

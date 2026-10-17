@@ -4,7 +4,8 @@ Tracks every alert until help is confirmed to have reached the person:
 went down -> alert (open) -> responder accepts (acknowledged) -> responder arrives (on_scene)
 -> resolved with an outcome. A watchdog notifies a backup responder when nobody accepts
 an alert in time; once someone accepts, they know where to go, so it doesn't escalate
-further. The camera can also confirm someone stayed with the person.
+further. The camera can also confirm someone stayed with the person. A speaker near the
+camera announces the location so bystanders can help (see speaker.py).
 
 Run from the repo root:
     uvicorn backend.app.main:app --reload
@@ -23,6 +24,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from . import db
+from .speaker import speaker
 
 DEDUP_WINDOW = timedelta(minutes=2)  # one alert per ongoing event for the same person/camera
 ACK_TIMEOUT = timedelta(seconds=int(os.getenv("ACK_TIMEOUT_SECONDS", 60)))          # nobody accepted
@@ -96,11 +98,23 @@ def cameras_with_status():
     return [{**c, "online": c["last_seen"] >= cutoff} for c in db.list_cameras()]
 
 
+async def publish(event_id, kind="updated"):
+    """After any change: push the event to dashboards and let the speaker react."""
+    event = db.get_event(event_id)
+    await hub.broadcast({"kind": kind, "event": event})
+    speaker.update(event, active_events())
+    return event
+
+
+def active_events():
+    return [e for e in db.list_events() if e["status"] in ACTIVE]
+
+
 async def escalate(event_id, reason, actor="system"):
     event = db.get_event(event_id)
     level = min(event["escalation_level"] + 1, 2)
     db.update_event(event_id, f"escalated: {ESCALATION_NAMES[level]}", actor, reason, escalation_level=level)
-    await hub.broadcast({"kind": "updated", "event": db.get_event(event_id)})
+    await publish(event_id)
 
 
 async def watchdog():
@@ -119,6 +133,9 @@ async def watchdog_pass(state):
     now = utcnow()
     for event_id in db.unacknowledged_events((now - ACK_TIMEOUT).isoformat()):
         await escalate(event_id, f"Nobody accepted within {ACK_TIMEOUT.seconds}s")
+    active = active_events()
+    for event in active:
+        speaker.update(event, active)  # repeats announcements that are due
 
     cameras = cameras_with_status()
     status = {c["id"]: c["online"] for c in cameras}
@@ -152,11 +169,15 @@ async def create_event(e: EventIn):
     since = (utcnow() - DEDUP_WINDOW).isoformat()
     dup = db.find_active_duplicate(e.camera_id, e.track_id, since)
     if dup:
+        if db.get_event(dup)["got_up_at"]:
+            # They got up after the alert and are down again: same incident, announce again
+            db.update_event(dup, "camera: person down again", "camera", got_up_at=None)
+            await publish(dup)
         return {"id": dup, "duplicate": True}
     details = {"urgency": e.urgency, "summary": e.summary, "reasons": e.reasons, "metrics": e.metrics}
     event_id = db.create_event(e.camera_id, e.location, e.type, e.track_id, e.detected_at,
                                e.went_down_at, details)
-    await hub.broadcast({"kind": "created", "event": db.get_event(event_id)})
+    await publish(event_id, kind="created")
     return {"id": event_id, "duplicate": False}
 
 
@@ -182,9 +203,32 @@ async def help_detected(event_id: int):
     if event["help_detected_at"] or event["status"] not in ACTIVE:
         return event
     db.update_event(event_id, "camera: someone is with the person", "camera", help_detected_at=db.now())
+    return await publish(event_id)
+
+
+@app.post("/events/{event_id}/got-up")
+async def got_up(event_id: int):
+    """Called by the camera when the person gets back up after the alert. The alert stays
+    open: staff should still check on them."""
     event = db.get_event(event_id)
-    await hub.broadcast({"kind": "updated", "event": event})
-    return event
+    if not event:
+        raise HTTPException(404, "event not found")
+    if event["got_up_at"] or event["status"] not in ACTIVE:
+        return event
+    db.update_event(event_id, "camera: person got up", "camera", got_up_at=db.now())
+    return await publish(event_id)
+
+
+@app.post("/events/{event_id}/silence")
+async def silence_speaker(event_id: int, body: ActionIn | None = None):
+    """Stop the spoken announcement for this alert (e.g. a false alarm)."""
+    body = body or ActionIn()
+    event = db.get_event(event_id)
+    if not event:
+        raise HTTPException(404, "event not found")
+    if not event["speaker_silenced"]:
+        db.update_event(event_id, "speaker silenced", body.actor, speaker_silenced=1)
+    return await publish(event_id)
 
 
 @app.post("/events/{event_id}/escalate")
@@ -225,10 +269,7 @@ async def act_on_event(event_id: int, action: str, body: ActionIn | None = None)
         fields |= {"resolved_at": ts, "outcome": body.outcome}
     reason = OUTCOMES.get(body.outcome) if action == "resolve" else body.reason
     db.update_event(event_id, new_status, body.actor, reason, **fields)
-
-    event = db.get_event(event_id)
-    await hub.broadcast({"kind": "updated", "event": event})
-    return event
+    return await publish(event_id)
 
 
 @app.get("/outcomes")

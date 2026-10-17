@@ -90,6 +90,11 @@ class FallDetector:
     def __init__(self):
         self.tracks: dict[int, Track] = {}
         self.handoffs: list[tuple[int, int]] = []  # (old ID, new ID) since last pop_handoffs()
+        self.got_up: list[int] = []  # track IDs that got up after an alert, since last pop_got_up()
+
+    def pop_got_up(self):
+        got_up, self.got_up = self.got_up, []
+        return got_up
 
     def pop_handoffs(self):
         handoffs, self.handoffs = self.handoffs, []
@@ -192,6 +197,7 @@ class FallDetector:
                 return self._build_alert(track_id, tr, s, t, ratio)
         elif tr.state == ALERTED and recovered:
             tr.state = MONITORING
+            self.got_up.append(track_id)  # the alert stays open for staff; bystanders get an update
         return None
 
     def debug_text(self, track_id):

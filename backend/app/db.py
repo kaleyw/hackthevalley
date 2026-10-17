@@ -26,6 +26,8 @@ CREATE TABLE IF NOT EXISTS events (
     help_detected_at TEXT,                   -- camera saw someone stay with the person
     resolved_at      TEXT,
     outcome          TEXT,
+    speaker_silenced INTEGER NOT NULL DEFAULT 0,  -- responder turned off the spoken announcement
+    got_up_at        TEXT,                   -- camera saw the person get back up after the alert
     details          TEXT NOT NULL DEFAULT '{}'
 );
 CREATE TABLE IF NOT EXISTS event_log (
@@ -47,7 +49,8 @@ CREATE TABLE IF NOT EXISTS cameras (
 NEW_EVENT_COLUMNS = {
     "went_down_at": "TEXT", "escalation_level": "INTEGER NOT NULL DEFAULT 0", "assigned_to": "TEXT",
     "acknowledged_at": "TEXT", "arrived_at": "TEXT", "help_detected_at": "TEXT",
-    "resolved_at": "TEXT", "outcome": "TEXT",
+    "resolved_at": "TEXT", "outcome": "TEXT", "speaker_silenced": "INTEGER NOT NULL DEFAULT 0",
+    "got_up_at": "TEXT",
 }
 
 

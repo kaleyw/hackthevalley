@@ -47,17 +47,85 @@ const ESCALATION_LABELS = { 1: 'Backup responder notified', 2: 'Supervisor notif
 
 const ACTIVE = ['open', 'acknowledged', 'on_scene']
 
-function beep() {
-  try {
-    const ctx = new AudioContext()
-    const osc = ctx.createOscillator()
-    osc.frequency.value = 880
-    osc.connect(ctx.destination)
-    osc.start()
-    osc.stop(ctx.currentTime + 0.3)
-  } catch {
-    // Browsers block audio until the user has clicked the page once
+// Alert sounds for security: [frequency Hz, seconds] notes
+const SOUNDS = {
+  newAlert: [[880, 0.18], [1175, 0.35]],                          // ding-dong
+  escalated: [[1175, 0.12], [1175, 0.12], [1175, 0.12], [1568, 0.4]],  // urgent
+  cameraOffline: [[440, 0.4], [330, 0.6]],                         // low warning
+}
+const REPEAT_DING_MS = 5000  // keep dinging while any alert is waiting for someone to accept it
+
+// Browsers only allow sound after the user has clicked the page, so sound starts "off"
+// until the first click anywhere.
+function useAlertSound() {
+  const ctxRef = useRef(null)
+  const mutedRef = useRef(false)
+  const [enabled, setEnabled] = useState(false)
+  const [muted, setMutedState] = useState(false)
+
+  useEffect(() => {
+    const enable = () => {
+      try {
+        ctxRef.current ??= new AudioContext()
+        ctxRef.current.resume().then(() => setEnabled(ctxRef.current.state === 'running'))
+      } catch {
+        // No Web Audio support; stay silent
+      }
+    }
+    window.addEventListener('pointerdown', enable)
+    return () => window.removeEventListener('pointerdown', enable)
+  }, [])
+
+  const setMuted = (v) => {
+    mutedRef.current = v
+    setMutedState(v)
   }
+
+  const play = useCallback((notes) => {
+    const ctx = ctxRef.current
+    if (!ctx || ctx.state !== 'running' || mutedRef.current) return
+    let t = ctx.currentTime
+    for (const [freq, dur] of notes) {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.frequency.value = freq
+      gain.gain.setValueAtTime(0.0001, t)
+      gain.gain.exponentialRampToValueAtTime(0.4, t + 0.01)
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + dur)
+      osc.connect(gain).connect(ctx.destination)
+      osc.start(t)
+      osc.stop(t + dur)
+      t += dur + 0.06
+    }
+  }, [])
+
+  return { enabled, muted, setMuted, play }
+}
+
+// Ding when something needs security's attention: a new alert (repeating until accepted),
+// an alert escalating to backup, or a camera going offline.
+function useSecurityDings(events, cameras, play) {
+  const seen = useRef(null)
+
+  useEffect(() => {
+    const prev = seen.current
+    seen.current = {
+      escalation: Object.fromEntries(events.map((e) => [e.id, e.escalation_level])),
+      online: Object.fromEntries(cameras.map((c) => [c.id, c.online])),
+    }
+    if (!prev) return // first load: don't ding for what was already there
+    if (events.some((e) => !(e.id in prev.escalation) && e.status === 'open')) play(SOUNDS.newAlert)
+    else if (events.some((e) => e.escalation_level > (prev.escalation[e.id] ?? 0))) play(SOUNDS.escalated)
+    if (cameras.some((c) => !c.online && prev.online[c.id] !== false)) play(SOUNDS.cameraOffline)
+  }, [events, cameras, play])
+
+  const waiting = events.filter((e) => e.status === 'open')
+  const anyEscalated = waiting.some((e) => e.escalation_level > 0)
+  useEffect(() => {
+    if (waiting.length === 0) return
+    const id = setInterval(() => play(anyEscalated ? SOUNDS.escalated : SOUNDS.newAlert), REPEAT_DING_MS)
+    return () => clearInterval(id)
+  }, [waiting.length, anyEscalated, play])
 }
 
 function duration(seconds) {
@@ -109,7 +177,6 @@ function useLiveData() {
           setCameras(data.cameras)
           return
         }
-        if (data.kind === 'created') beep()
         setEvents((prev) => [data.event, ...prev.filter((e) => e.id !== data.event.id)].sort((a, b) => b.id - a.id))
         loadStats()
       }
@@ -209,6 +276,9 @@ function EventCard({ event, responder, now }) {
   const isOpen = event.status === 'open'
   const { urgency, summary, reasons = [] } = event.details ?? {}
   const downFor = (now - new Date(event.went_down_at ?? event.created_at)) / 1000
+  // Mirrors needs_announcing in backend/app/speaker.py
+  const announcing = active && !event.speaker_silenced && !event.arrived_at && !event.help_detected_at && !event.got_up_at
+  const gotUp = active && event.got_up_at
 
   return (
     <li className={`rounded-xl border bg-white p-4 shadow-sm ${isOpen ? 'border-red-400 ring-2 ring-red-200' : 'border-slate-200'}`}>
@@ -233,8 +303,21 @@ function EventCard({ event, responder, now }) {
         </div>
       </div>
 
-      {(event.escalation_level > 0 || event.help_detected_at) && (
-        <div className="mt-2 flex flex-wrap gap-1.5 text-xs font-medium">
+      {(announcing || gotUp || event.escalation_level > 0 || event.help_detected_at || event.outcome) && (
+        <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs font-medium">
+          {announcing && (
+            <span className="flex items-center gap-1.5 rounded-full bg-sky-100 py-1 pl-2.5 pr-1 text-sky-800">
+              🔊 Speaker asking bystanders to help
+              <button onClick={() => post('silence')} className="rounded-full bg-white px-2 py-0.5 text-sky-900 hover:bg-sky-50">
+                Silence
+              </button>
+            </span>
+          )}
+          {gotUp && (
+            <span className="rounded-full bg-amber-100 px-2.5 py-1 text-amber-900">
+              🧍 Person got back up at {clock(event.got_up_at)}. Still check on them
+            </span>
+          )}
           {event.escalation_level > 0 && (
             <span className="rounded-full bg-purple-100 px-2.5 py-1 text-purple-800">⚠ {ESCALATION_LABELS[event.escalation_level]}</span>
           )}
@@ -311,6 +394,8 @@ function EventCard({ event, responder, now }) {
 export default function App() {
   const { events, cameras, stats, connected } = useLiveData()
   const now = useNow()
+  const sound = useAlertSound()
+  useSecurityDings(events, cameras, sound.play)
   const [responder, setResponder] = useState(() => {
     try { return localStorage.getItem('responder') || '' } catch { return '' }
   })
@@ -336,6 +421,13 @@ export default function App() {
               placeholder="Responder name"
               className="w-36 rounded-lg border border-slate-300 px-2 py-1"
             />
+            <button
+              onClick={() => sound.setMuted(!sound.muted)}
+              className={`rounded-lg border px-2 py-1 ${sound.muted ? 'border-red-300 text-red-700' : 'border-slate-300 text-slate-700'}`}
+              title="Alert sounds for security"
+            >
+              {sound.muted ? '🔕 Muted' : '🔔 Sound on'}
+            </button>
             {cameras.map((c) => (
               <span key={c.id} className={`flex items-center gap-1.5 ${c.online ? 'text-slate-600' : 'text-red-600'}`} title={c.location}>
                 <span className={`h-2 w-2 rounded-full ${c.online ? 'bg-green-500' : 'bg-red-500'}`} />
@@ -351,6 +443,11 @@ export default function App() {
       </header>
 
       <main className="mx-auto max-w-3xl space-y-6 px-4 py-6">
+        {!sound.enabled && (
+          <button className="w-full rounded-xl border border-amber-300 bg-amber-50 p-3 text-left text-sm text-amber-900">
+            🔔 <b>Alert sounds are off.</b> Click here once to turn them on, so you hear new alerts.
+          </button>
+        )}
         {offline.length > 0 && (
           <div className="rounded-xl border border-red-300 bg-red-50 p-3 text-sm text-red-800">
             <b>Camera offline:</b> {offline.map((c) => `${c.id} (${c.location})`).join(', ')}. No alerts can come from it until it's back.

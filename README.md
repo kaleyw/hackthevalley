@@ -53,7 +53,7 @@ curl -X POST localhost:8000/events -H 'Content-Type: application/json' \
 ```
 vision/      run.py (main loop), detector.py (collapse logic), help_watch.py (camera-confirmed help),
              config.py (all thresholds), bytetrack.yaml
-backend/     app/main.py (API + WebSocket), app/db.py (SQLite)
+backend/     app/main.py (API + WebSocket), app/db.py (SQLite), app/speaker.py (announcements)
 dashboard/   src/App.jsx (responder dashboard)
 data/        test videos (not committed; see data/README.md)
 PLAN.md      master checklist
@@ -96,6 +96,8 @@ went down → alert (open) → responder accepts (acknowledged) → responder ar
 - **Responder confirms:** `POST /events/{id}/acknowledge`, then `/arrive` ("I'm here"), then `/resolve` with an `outcome`: `person_ok`, `helped_on_site`, `medical_help_called` or `person_gone`. Resolving requires arriving first. `/dismiss` (with a `reason`) is for false alarms.
 - **Camera confirms:** after an alert, if another person stays next to the person for 10 s, the vision script calls `POST /events/{id}/help-detected`. Someone walking past (gone for 1.5+ s) restarts the count.
 - **Watchdog:** if nobody accepts an alert within `ACK_TIMEOUT_SECONDS` (default 60), a backup responder is notified. Once someone accepts, it doesn't auto-escalate: they know where to go. Responders can still click Escalate.
+- **Speaker for bystanders:** when an alert fires, the backend chimes and says *"Attention please. Someone near [CAMERA_LOCATION] may need help. If you are nearby, please check on them. Staff have been notified."* It repeats every 20 s (saying "Staff are on the way" once accepted), says *"Thank you. Help has arrived."* when someone is with them, then stops. Several people down at the same location are announced together ("2 people near ..."), and each one getting help is announced separately ("Thank you. Help has arrived near ... One more person near ... still needs help."). If the person gets back up after the alert, the camera calls `POST /events/{id}/got-up`: the speaker says *"Update: the person near ... is now back on their feet. Staff will still check on them."* and stops asking bystanders, while the alert stays open for staff. If they go down again, it's announced again right away. It names the location only, never describes the person. Uses the Mac's built-in `say`, so it plays through the Mac's current sound output (laptop speakers or a Bluetooth speaker like a JBL). Responders can silence it from the dashboard (`POST /events/{id}/silence`). Turn it off with `SPEAKER_ENABLED=0`.
+- **Dashboard dings for security:** a ding-dong for a new alert, repeating every 5 s until someone accepts it; an urgent ding when an alert escalates to backup; a low warning tone when a camera goes offline. Browsers only allow sound after a click, so the dashboard shows a "click to turn on alert sounds" banner until you do. There's a mute button in the header.
 - **Camera heartbeat:** the vision script calls `POST /cameras/{id}/heartbeat` every 2 s; the dashboard warns when a camera goes quiet.
 - **Stats:** `GET /stats` returns % of alerts where help reached the person, median time from going down to help, camera-verified count and escalations.
 
