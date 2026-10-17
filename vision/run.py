@@ -115,7 +115,11 @@ def main():
                     # give the detector the box when the whole body is visible
                     in_frame = x1 > m and y1 > m and x2 < frame_w - m and y2 < frame_h - m
                     alert = detector.update(tid, t, xy[j], None if conf is None else conf[j],
-                                            xyxy[j] if in_frame else None)
+                                            xyxy[j], box_in_frame=in_frame)
+                    for old_id, new_id in detector.pop_handoffs():
+                        helpers.rename(old_id, new_id)
+                        last_state[new_id] = last_state.pop(old_id, MONITORING)
+                        print(f"[#{new_id}] same person as #{old_id} (tracker changed their ID); countdown kept")
                     if alert and (event_id := send_event(alert)) is not None:
                         helpers.watch(tid, event_id, xyxy[j], t)
 

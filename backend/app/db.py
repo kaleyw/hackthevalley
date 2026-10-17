@@ -127,17 +127,13 @@ def update_event(event_id, action, actor=None, reason=None, **fields):
     return ts
 
 
-def events_needing_escalation(ack_before_iso, arrive_before_iso):
-    """Open events nobody accepted in time, and accepted events where nobody arrived in time."""
+def unacknowledged_events(created_before_iso):
+    """Open events nobody accepted in time (once someone accepts, they know where to go)."""
     with connect() as conn:
-        unacked = conn.execute(
+        rows = conn.execute(
             "SELECT id FROM events WHERE status = 'open' AND escalation_level < 1 AND created_at < ?",
-            (ack_before_iso,)).fetchall()
-        not_arrived = conn.execute(
-            """SELECT id FROM events WHERE status = 'acknowledged' AND escalation_level < 2
-               AND arrived_at IS NULL AND help_detected_at IS NULL AND acknowledged_at < ?""",
-            (arrive_before_iso,)).fetchall()
-        return [r["id"] for r in unacked], [r["id"] for r in not_arrived]
+            (created_before_iso,)).fetchall()
+        return [r["id"] for r in rows]
 
 
 def camera_heartbeat(camera_id, location):

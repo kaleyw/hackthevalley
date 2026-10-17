@@ -41,6 +41,8 @@ FALL_ALERT_SECONDS = 3.0   # fast fall: alert after staying down this long (high
 DOWN_ALERT_SECONDS = 12.0  # slow collapse / lying down: alert after staying down this long
 RECOVER_SECONDS = 2.0      # upright this long cancels a pending alert or re-arms after one
 FORGET_TRACK_SECONDS = 10  # drop state for people we haven't seen in this long
+HANDOFF_SECONDS = 3.0      # a new track ID appearing where a down person was lost this recently is them
+HANDOFF_IOU = 0.3          # ...if its box overlaps their last box at least this much
 
 # Movement after going down (only used to explain alerts, never required to alert)
 MOVEMENT_WINDOW_SECONDS = 5.0
@@ -49,7 +51,9 @@ LOW_MOVEMENT_TORSOS_PER_SEC = 0.15
 # Camera-confirmed help: after an alert, someone staying this close to the person for
 # this long counts as "someone is with them" (distance in multiples of the person's box size)
 HELP_RADIUS_BOXES = 1.0
-HELP_CONFIRM_SECONDS = 3.0
+HELP_CONFIRM_SECONDS = 10.0
+HELP_GAP_TOLERANCE_SECONDS = 1.5  # a helper flickering out of detection this briefly doesn't restart the count
+SAME_PERSON_IOU = 0.6  # a box overlapping the person this much is a duplicate detection of them, not a helper
 HELP_KEEP_LAST_POSITION_SECONDS = 10.0  # helpers often block the camera's view of the person
 
 HEARTBEAT_SECONDS = 2.0  # how often the camera tells the backend it's alive

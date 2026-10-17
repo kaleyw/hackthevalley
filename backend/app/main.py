@@ -2,8 +2,9 @@
 
 Tracks every alert until help is confirmed to have reached the person:
 went down -> alert (open) -> responder accepts (acknowledged) -> responder arrives (on_scene)
--> resolved with an outcome. A watchdog escalates alerts nobody accepts, and accepted
-alerts nobody arrives at. The camera can also confirm someone stayed with the person.
+-> resolved with an outcome. A watchdog notifies a backup responder when nobody accepts
+an alert in time; once someone accepts, they know where to go, so it doesn't escalate
+further. The camera can also confirm someone stayed with the person.
 
 Run from the repo root:
     uvicorn backend.app.main:app --reload
@@ -24,8 +25,7 @@ from pydantic import BaseModel
 from . import db
 
 DEDUP_WINDOW = timedelta(minutes=2)  # one alert per ongoing event for the same person/camera
-ACK_TIMEOUT = timedelta(seconds=int(os.getenv("ACK_TIMEOUT_SECONDS", 30)))          # nobody accepted
-ARRIVAL_TIMEOUT = timedelta(seconds=int(os.getenv("ARRIVAL_TIMEOUT_SECONDS", 90)))  # accepted, nobody arrived
+ACK_TIMEOUT = timedelta(seconds=int(os.getenv("ACK_TIMEOUT_SECONDS", 60)))          # nobody accepted
 CAMERA_OFFLINE_AFTER = timedelta(seconds=6)
 ESCALATION_NAMES = {1: "backup responder notified", 2: "supervisor notified"}
 log = logging.getLogger("uvicorn.error")
@@ -117,12 +117,8 @@ async def watchdog():
 async def watchdog_pass(state):
     """Escalate alerts that stall, and tell dashboards when a camera goes online/offline."""
     now = utcnow()
-    unacked, not_arrived = db.events_needing_escalation(
-        (now - ACK_TIMEOUT).isoformat(), (now - ARRIVAL_TIMEOUT).isoformat())
-    for event_id in unacked:
+    for event_id in db.unacknowledged_events((now - ACK_TIMEOUT).isoformat()):
         await escalate(event_id, f"Nobody accepted within {ACK_TIMEOUT.seconds}s")
-    for event_id in not_arrived:
-        await escalate(event_id, f"Accepted but nobody arrived within {ARRIVAL_TIMEOUT.seconds}s")
 
     cameras = cameras_with_status()
     status = {c["id"]: c["online"] for c in cameras}

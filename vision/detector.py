@@ -50,7 +50,17 @@ class Track:
     frames_while_down: int = 0
     hidden_frames_while_down: int = 0
     lying_by_box: bool = False  # last "lying" decision came from body shape, not torso angle
+    box: np.ndarray | None = None  # last bounding box, used to recognise the person after an ID change
     debug: dict = field(default_factory=dict)  # latest measurements, for the debug overlay and log
+
+
+def iou(a, b):
+    """Overlap of two (x1, y1, x2, y2) boxes: 0 = none, 1 = identical."""
+    ix = max(0.0, float(min(a[2], b[2]) - max(a[0], b[0])))
+    iy = max(0.0, float(min(a[3], b[3]) - max(a[1], b[1])))
+    inter = ix * iy
+    union = float((a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1])) - inter
+    return inter / union if union > 0 else 0.0
 
 
 def box_ratio(box):
@@ -79,6 +89,22 @@ def measure(t, xy, conf):
 class FallDetector:
     def __init__(self):
         self.tracks: dict[int, Track] = {}
+        self.handoffs: list[tuple[int, int]] = []  # (old ID, new ID) since last pop_handoffs()
+
+    def pop_handoffs(self):
+        handoffs, self.handoffs = self.handoffs, []
+        return handoffs
+
+    def _find_handoff(self, t, box):
+        """A down person the tracker just lost, whose last box overlaps this new track's box."""
+        best, best_iou = None, config.HANDOFF_IOU
+        for tid, tr in self.tracks.items():
+            if (tr.state != MONITORING and tr.box is not None and tr.last_seen < t
+                    and t - tr.last_seen <= config.HANDOFF_SECONDS):
+                overlap = iou(box, tr.box)
+                if overlap >= best_iou:
+                    best, best_iou = tid, overlap
+        return best
 
     def state(self, track_id):
         return self.tracks[track_id].state if track_id in self.tracks else MONITORING
@@ -94,17 +120,29 @@ class FallDetector:
         label = "FALL?" if tr.fast_drop else "DOWN"
         return f"{label} {down:.0f}s/{self._alert_after(tr):.0f}s"
 
-    def update(self, track_id, t, xy, conf=None, box=None):
+    def update(self, track_id, t, xy, conf=None, box=None, box_in_frame=True):
         """Feed one person's keypoints (and bounding box) for one frame.
 
         Returns an alert dict once per incident, else None. "Lying" means the torso is near
         horizontal, or the torso is visibly tilted and the body's box is clearly wider than
         tall (covers camera angles that make a lying torso look less tilted than it is).
+        The box rule is skipped when box_in_frame is False (a person cut off by the frame edge
+        can look wide while standing).
+
+        When someone walks past, the tracker sometimes gives the person on the ground a new
+        ID; a new ID that appears where a down person was just lost takes over their state.
         """
+        if track_id not in self.tracks and box is not None:
+            old_id = self._find_handoff(t, box)
+            if old_id is not None:
+                self.tracks[track_id] = self.tracks.pop(old_id)
+                self.handoffs.append((old_id, track_id))
         tr = self.tracks.setdefault(track_id, Track())
         tr.last_seen = t
+        if box is not None:
+            tr.box = box
         s = measure(t, xy, conf)
-        ratio = box_ratio(box)
+        ratio = box_ratio(box) if box_in_frame else None
         torso_lying = s is not None and s.angle_deg >= config.LYING_ANGLE_DEG
         # Body shape only counts when we can see the torso and it's tilted; a wide box alone
         # (a face close to the camera, someone sitting nearby) is not evidence of lying down
@@ -131,9 +169,14 @@ class FallDetector:
             # Torso length shrinks when lying (foreshortening), so only learn it while upright
             tr.upright_torso_len = s.torso_len if tr.upright_torso_len is None else (
                 0.9 * tr.upright_torso_len + 0.1 * s.torso_len)
-        tr.lying_since = (tr.lying_since or t) if lying else None
+        if lying:
+            tr.lying_since = tr.lying_since or t
         tr.upright_since = None if lying else (tr.upright_since or t)
         recovered = tr.upright_since is not None and t - tr.upright_since >= config.RECOVER_SECONDS
+        if recovered:
+            # Only a real recovery restarts the countdown; a glitchy frame (someone walking
+            # past) doesn't
+            tr.lying_since = None
 
         if tr.state == MONITORING:
             if lying:

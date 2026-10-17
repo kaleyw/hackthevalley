@@ -76,7 +76,7 @@
 - [x] Record when the person went down, not just when the alert fired
 - [x] Lifecycle: open → accepted → "I'm here" (on scene) → resolved with an outcome
 - [x] Resolving requires arrival and an outcome (person OK, helped on site, medical help called, person gone)
-- [x] Camera confirms help: someone stays next to the person for 3 s after the alert
+- [x] Camera confirms help: someone stays next to the person for 10 s after the alert (a walk-by restarts the count)
 - [x] Dashboard timeline per alert: went down → alert → accepted → help reached → resolved
 - [x] Stats: % of alerts where help reached the person, median time from going down to help
 - [ ] Test camera-confirmed help live: teammate lies down, another walks over and kneels beside them
@@ -100,7 +100,7 @@
 
 ## 7. Notifications and escalation
 - [x] Dashboard alert works
-- [x] Backup escalation: nobody accepts in 30 s, or nobody arrives in 90 s after accepting → escalate automatically
+- [x] Backup escalation: nobody accepts in 60 s → backup responder notified (no auto-escalation once accepted; manual Escalate still available)
 - [ ] Optional: SMS or email to the on-duty responder (only if setup is quick, e.g. Twilio trial)
 - [ ] "Contact emergency services" is a simulated action after human review (never auto-call 911)
 

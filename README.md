@@ -88,14 +88,14 @@ Every alert is tracked until someone is confirmed with the person:
 
 ```
 went down → alert (open) → responder accepts (acknowledged) → responder arrives (on_scene) → resolved + outcome
-                 │ nobody accepts in 30 s               │ accepted, nobody arrives in 90 s
-                 ▼                                      ▼
-           backup responder notified              escalated again
+                 │ nobody accepts in 60 s
+                 ▼
+           backup responder notified
 ```
 
 - **Responder confirms:** `POST /events/{id}/acknowledge`, then `/arrive` ("I'm here"), then `/resolve` with an `outcome`: `person_ok`, `helped_on_site`, `medical_help_called` or `person_gone`. Resolving requires arriving first. `/dismiss` (with a `reason`) is for false alarms.
-- **Camera confirms:** after an alert, if another person stays next to the person for 3 s, the vision script calls `POST /events/{id}/help-detected`.
-- **Watchdog:** escalates alerts that stall. Timeouts are set with `ACK_TIMEOUT_SECONDS` and `ARRIVAL_TIMEOUT_SECONDS` (defaults 30 and 90).
+- **Camera confirms:** after an alert, if another person stays next to the person for 10 s, the vision script calls `POST /events/{id}/help-detected`. Someone walking past (gone for 1.5+ s) restarts the count.
+- **Watchdog:** if nobody accepts an alert within `ACK_TIMEOUT_SECONDS` (default 60), a backup responder is notified. Once someone accepts, it doesn't auto-escalate: they know where to go. Responders can still click Escalate.
 - **Camera heartbeat:** the vision script calls `POST /cameras/{id}/heartbeat` every 2 s; the dashboard warns when a camera goes quiet.
 - **Stats:** `GET /stats` returns % of alerts where help reached the person, median time from going down to help, camera-verified count and escalations.
 
