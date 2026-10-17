@@ -1,0 +1,14 @@
+# Vision
+ultralytics>=8.3.0
+opencv-python>=4.10
+lap>=0.5.12          # ByteTrack matching
+numpy
+
+# Backend
+fastapi>=0.115
+uvicorn[standard]>=0.30
+pydantic>=2.7
+
+# Shared
+requests>=2.32
+python-dotenv>=1.0

@@ -1,0 +1,9 @@
+# ByteTrack settings, tuned for fall detection.
+# Based on ultralytics/cfg/trackers/bytetrack.yaml.
+tracker_type: bytetrack
+track_high_thresh: 0.25  # first-pass matching threshold
+track_low_thresh: 0.05   # keep low-confidence detections so IDs survive mid-fall (default 0.1)
+new_track_thresh: 0.25   # confidence needed to start a new track
+track_buffer: 60         # frames to remember a lost person, e.g. behind someone (default 30)
+match_thresh: 0.8        # matching threshold
+fuse_score: True

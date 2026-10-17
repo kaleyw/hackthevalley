@@ -1,5 +1,26 @@
+# OS / editors
 .DS_Store
-node_modules/
-.env
+.vscode/
+.idea/
+
+# Python
 __pycache__/
+*.pyc
 .venv/
+
+# Secrets
+.env
+
+# Data, videos, model weights, generated files
+data/*
+!data/README.md
+*.pt
+*.mp4
+*.avi
+*.mov
+backend/events.db
+backend/clips/
+
+# Node
+node_modules/
+dashboard/dist/
