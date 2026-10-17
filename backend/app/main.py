@@ -32,8 +32,10 @@ class EventIn(BaseModel):
     type: str = "possible_fall"
     track_id: int | None = None
     detected_at: str
-    lying_seconds: float | None = None
-    torso_angle_deg: float | None = None
+    urgency: str = "medium"          # "high" for a fast fall, "medium" for a slow collapse
+    summary: str | None = None       # one-line headline for responders
+    reasons: list[str] = []          # plain-language "why this alert" lines
+    metrics: dict = {}               # raw numbers behind the reasons
 
 
 class ActionIn(BaseModel):
@@ -80,7 +82,7 @@ async def create_event(e: EventIn):
     dup = db.find_active_duplicate(e.camera_id, e.track_id, since)
     if dup:
         return {"id": dup, "duplicate": True}
-    details = {"lying_seconds": e.lying_seconds, "torso_angle_deg": e.torso_angle_deg}
+    details = {"urgency": e.urgency, "summary": e.summary, "reasons": e.reasons, "metrics": e.metrics}
     event_id = db.create_event(e.camera_id, e.location, e.type, e.track_id, e.detected_at, details)
     event = db.get_event(event_id)
     await hub.broadcast({"kind": "created", "event": event})

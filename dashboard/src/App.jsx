@@ -17,7 +17,17 @@ const ACTIONS = {
   dismissed: [],
 }
 
-const ACTION_LABELS = { acknowledge: 'Accept', escalate: 'Escalate', dismiss: 'Dismiss', resolve: 'Resolve' }
+const URGENCY_STYLES = {
+  high: 'bg-red-600 text-white',
+  medium: 'bg-orange-100 text-orange-800',
+}
+
+const TYPE_LABELS = {
+  possible_fall: 'Possible fall, person not getting up',
+  person_down: 'Person down and not getting up',
+}
+
+const ACTION_LABELS ={ acknowledge: 'Accept', escalate: 'Escalate', dismiss: 'Dismiss', resolve: 'Resolve' }
 
 function beep() {
   try {
@@ -91,22 +101,36 @@ function EventCard({ event, responder }) {
   }
 
   const isOpen = event.status === 'open'
+  const { urgency, summary, reasons = [] } = event.details ?? {}
   return (
     <li className={`rounded-xl border bg-white p-4 shadow-sm ${isOpen ? 'border-red-400 ring-2 ring-red-200' : 'border-slate-200'}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="font-semibold text-slate-900">
             {isOpen && <span className="mr-2 inline-block h-2.5 w-2.5 animate-pulse rounded-full bg-red-500" />}
-            Possible fall detected
+            {summary ?? TYPE_LABELS[event.type] ?? 'Person may need help'}
           </p>
           <p className="text-sm text-slate-600">{event.location} · {event.camera_id} · person #{event.track_id ?? '?'}</p>
-          <p className="text-sm text-slate-500">
-            {new Date(event.detected_at).toLocaleTimeString()}
-            {event.details?.lying_seconds != null && ` · down for ${event.details.lying_seconds}s when alerted`}
-          </p>
+          <p className="text-sm text-slate-500">{new Date(event.detected_at).toLocaleTimeString()}</p>
         </div>
-        <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_STYLES[event.status]}`}>{event.status}</span>
+        <div className="flex gap-1.5">
+          {urgency && (
+            <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${URGENCY_STYLES[urgency] ?? URGENCY_STYLES.medium}`}>
+              {urgency} urgency
+            </span>
+          )}
+          <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_STYLES[event.status]}`}>{event.status}</span>
+        </div>
       </div>
+
+      {reasons.length > 0 && (
+        <div className="mt-3 rounded-lg bg-slate-50 p-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Why this alert</p>
+          <ul className="mt-1 list-disc space-y-0.5 pl-5 text-sm text-slate-700">
+            {reasons.map((r, i) => <li key={i}>{r}</li>)}
+          </ul>
+        </div>
+      )}
 
       <div className="mt-3 flex flex-wrap gap-2">
         {ACTIONS[event.status].map((a) => (

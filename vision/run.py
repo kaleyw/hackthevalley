@@ -15,9 +15,9 @@ import requests
 from ultralytics import YOLO
 
 import config
-from detector import ALERTED, POSSIBLE_FALL, FallDetector
+from detector import ALERTED, DOWN_PENDING, FallDetector
 
-STATE_COLORS = {POSSIBLE_FALL: (0, 165, 255), ALERTED: (0, 0, 255)}  # BGR
+STATE_COLORS = {DOWN_PENDING: (0, 165, 255), ALERTED: (0, 0, 255)}  # BGR
 
 
 def send_event(alert):
@@ -25,13 +25,12 @@ def send_event(alert):
         "camera_id": config.CAMERA_ID,
         "location": config.CAMERA_LOCATION,
         "detected_at": datetime.now(timezone.utc).isoformat(),
-        "type": "possible_fall",
         **alert,
     }
     try:
         r = requests.post(f"{config.BACKEND_URL}/events", json=event, timeout=2)
         r.raise_for_status()
-        print(f"[event] sent: {r.json()}")
+        print(f"[event] sent {alert['type']}: {r.json()} | " + "; ".join(alert["reasons"]))
     except requests.RequestException as e:
         print(f"[event] backend unreachable, event not sent: {e}")
 
@@ -67,11 +66,11 @@ def main():
                 alert = detector.update(tid, t, xy[j], None if conf is None else conf[j])
                 if alert:
                     send_event(alert)
-                state = detector.state(tid)
-                if state in STATE_COLORS:
+                label = detector.status_text(tid, t)
+                if label:
                     x1, y1 = boxes[j][:2].astype(int)
-                    cv2.putText(frame, f"#{tid} {state.upper()}", (x1, max(y1 - 30, 20)),
-                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, STATE_COLORS[state], 2)
+                    cv2.putText(frame, f"#{tid} {label}", (x1, max(y1 - 30, 20)),
+                                cv2.FONT_HERSHEY_SIMPLEX, 0.8, STATE_COLORS[detector.state(tid)], 2)
         detector.forget_stale(t)
 
         if not args.no_show:

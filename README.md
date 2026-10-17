@@ -1,6 +1,6 @@
 # Hack the Valley: Fall Alerts
 
-Detects a possible fall or collapse from a camera feed, then starts a welfare check that a responder has to acknowledge.
+A fixed security camera detects when someone collapses or falls and doesn't get up, then starts a welfare check that a responder has to acknowledge. Built for Project KAZE: helping people who can no longer ask for help themselves.
 
 ```
 camera / video ──► vision/ (YOLO Pose + ByteTrack + fall detector) ──POST /events──► backend/ (FastAPI + SQLite)
@@ -16,7 +16,7 @@ camera / video ──► vision/ (YOLO Pose + ByteTrack + fall detector) ──P
 | Video ingestion | Python + OpenCV |
 | Pose estimation | Ultralytics YOLO Pose (`yolo11n-pose.pt`) |
 | Tracking | ByteTrack (built into Ultralytics, settings in `vision/bytetrack.yaml`) |
-| Fall detection | Temporal rules + state machine over keypoints (`vision/detector.py`) |
+| Collapse detection | Temporal rules + state machine over keypoints (`vision/detector.py`): fast fall (high urgency) or slow collapse (medium), each alert with plain-language reasons |
 | Backend | FastAPI + SQLite, WebSocket for live updates |
 | Dashboard | React + Vite + Tailwind CSS |
 
@@ -45,7 +45,7 @@ Press `q` in the preview window to stop the vision script. On a Mac with Apple S
 **Test the dashboard without a camera:**
 ```bash
 curl -X POST localhost:8000/events -H 'Content-Type: application/json' \
-  -d '{"camera_id":"cam-1","location":"Demo venue - Room A","track_id":1,"detected_at":"2026-10-17T18:00:00Z","lying_seconds":3}'
+  -d '{"camera_id":"cam-1","location":"Demo venue - Room A","type":"person_down","urgency":"medium","summary":"Person down and not getting up","reasons":["Went down slowly","Lying down for 12s"],"track_id":1,"detected_at":"2026-10-17T18:00:00Z"}'
 ```
 
 ## Repo layout
@@ -66,12 +66,20 @@ PLAN.md      master checklist
   "camera_id": "cam-1",
   "location": "Demo venue - Room A",
   "type": "possible_fall",
+  "urgency": "high",
+  "summary": "Possible fall, person not getting up",
+  "reasons": [
+    "Went down fast: hips dropped 1.1 body-lengths in 0.6s",
+    "Lying down for 3s (torso 85° from upright)",
+    "Very little movement in the last 2s"
+  ],
   "track_id": 3,
   "detected_at": "2026-10-17T18:00:00+00:00",
-  "lying_seconds": 3.0,
-  "torso_angle_deg": 84
+  "metrics": {"down_seconds": 3.0, "torso_angle_deg": 85, "drop_torsos": 1.1, "movement_torsos_per_sec": 0.02, "hidden_fraction": 0.0}
 }
 ```
+`type` is `possible_fall` (fast fall, high urgency, alerts after 3 s down) or `person_down` (slow collapse, medium urgency, alerts after 12 s down).
+
 Statuses: `open` → `acknowledged` → `resolved`, plus `escalated` and `dismissed` (dismiss needs a reason). Actions: `POST /events/{id}/acknowledge|escalate|dismiss|resolve` with `{"actor": "name", "reason": "..."}`. A second alert for the same person on the same camera within 2 minutes is suppressed.
 
 ## Notes
