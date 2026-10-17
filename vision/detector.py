@@ -49,6 +49,16 @@ class Track:
     fast_drop: dict | None = None           # set if the person went down fast
     frames_while_down: int = 0
     hidden_frames_while_down: int = 0
+    lying_by_box: bool = False  # last "lying" decision came from body shape, not torso angle
+    debug: dict = field(default_factory=dict)  # latest measurements, for the debug overlay and log
+
+
+def box_ratio(box):
+    """Width / height of a bounding box. A person lying flat is usually wider than tall."""
+    if box is None:
+        return None
+    w, h = float(box[2] - box[0]), float(box[3] - box[1])
+    return w / h if h > 0 else None
 
 
 def measure(t, xy, conf):
@@ -59,10 +69,10 @@ def measure(t, xy, conf):
     shoulder = (xy[L_SHOULDER] + xy[R_SHOULDER]) / 2
     hip = (xy[L_HIP] + xy[R_HIP]) / 2
     dx, dy = shoulder - hip
-    torso_len = math.hypot(dx, dy)
+    torso_len = math.hypot(float(dx), float(dy))
     if torso_len < 1:
         return None
-    angle = math.degrees(math.atan2(abs(dx), abs(dy)))
+    angle = math.degrees(math.atan2(abs(float(dx)), abs(float(dy))))
     return Sample(t=t, hip=hip, shoulder=shoulder, torso_len=torso_len, angle_deg=angle)
 
 
@@ -84,11 +94,26 @@ class FallDetector:
         label = "FALL?" if tr.fast_drop else "DOWN"
         return f"{label} {down:.0f}s/{self._alert_after(tr):.0f}s"
 
-    def update(self, track_id, t, xy, conf=None):
-        """Feed one person's keypoints for one frame. Returns an alert dict once per incident, else None."""
+    def update(self, track_id, t, xy, conf=None, box=None):
+        """Feed one person's keypoints (and bounding box) for one frame.
+
+        Returns an alert dict once per incident, else None. "Lying" means the torso is near
+        horizontal, or the torso is visibly tilted and the body's box is clearly wider than
+        tall (covers camera angles that make a lying torso look less tilted than it is).
+        """
         tr = self.tracks.setdefault(track_id, Track())
         tr.last_seen = t
         s = measure(t, xy, conf)
+        ratio = box_ratio(box)
+        torso_lying = s is not None and s.angle_deg >= config.LYING_ANGLE_DEG
+        # Body shape only counts when we can see the torso and it's tilted; a wide box alone
+        # (a face close to the camera, someone sitting nearby) is not evidence of lying down
+        box_lying = (s is not None and ratio is not None and ratio >= config.LYING_BOX_RATIO
+                     and s.angle_deg >= config.BOX_RULE_MIN_ANGLE_DEG)
+        conf_min = None if conf is None else float(np.min(conf[[L_SHOULDER, R_SHOULDER, L_HIP, R_HIP]]))
+        tr.debug = {"angle": None if s is None else round(s.angle_deg), "box_ratio": None if ratio is None else round(ratio, 2),
+                    "conf": None if conf_min is None else round(conf_min, 2)}
+
         if tr.state == DOWN_PENDING:
             tr.frames_while_down += 1
             tr.hidden_frames_while_down += s is None
@@ -99,8 +124,10 @@ class FallDetector:
         while tr.history and t - tr.history[0].t > config.HISTORY_SECONDS:
             tr.history.popleft()
 
-        lying = s.angle_deg >= config.LYING_ANGLE_DEG
-        if not lying:
+        lying = torso_lying or box_lying
+        if lying:
+            tr.lying_by_box = not torso_lying
+        else:
             # Torso length shrinks when lying (foreshortening), so only learn it while upright
             tr.upright_torso_len = s.torso_len if tr.upright_torso_len is None else (
                 0.9 * tr.upright_torso_len + 0.1 * s.torso_len)
@@ -116,12 +143,22 @@ class FallDetector:
         elif tr.state == DOWN_PENDING:
             if recovered:
                 tr.state = MONITORING
-            elif tr.lying_since is not None and t - tr.lying_since >= self._alert_after(tr):
+            elif (tr.lying_since is not None and t - tr.lying_since >= self._alert_after(tr)
+                  and self._visible_fraction(tr) >= config.MIN_VISIBLE_WHILE_DOWN):
                 tr.state = ALERTED
-                return self._build_alert(track_id, tr, s, t)
+                return self._build_alert(track_id, tr, s, t, ratio)
         elif tr.state == ALERTED and recovered:
             tr.state = MONITORING
         return None
+
+    def debug_text(self, track_id):
+        """Detector measurements for the --debug overlay, e.g. 'torso 72deg  box 1.6  conf 0.81'."""
+        d = self.tracks[track_id].debug if track_id in self.tracks else {}
+        fmt = lambda v, suffix="": "-" if v is None else f"{v}{suffix}"
+        return f"torso {fmt(d.get('angle'), 'deg')}  box {fmt(d.get('box_ratio'))}  conf {fmt(d.get('conf'))}"
+
+    def _visible_fraction(self, tr):
+        return 1 - tr.hidden_frames_while_down / max(tr.frames_while_down, 1)
 
     def _alert_after(self, tr):
         return config.FALL_ALERT_SECONDS if tr.fast_drop else config.DOWN_ALERT_SECONDS
@@ -135,7 +172,7 @@ class FallDetector:
         if len(window) < 2:
             return None
         top = min(window, key=lambda h: h.hip[1])  # image y grows downward
-        drop = (window[-1].hip[1] - top.hip[1]) / scale
+        drop = float(window[-1].hip[1] - top.hip[1]) / scale
         if drop < config.DROP_MIN_TORSOS:
             return None
         return {"torsos": round(drop, 1), "seconds": round(max(window[-1].t - top.t, 0.1), 1)}
@@ -159,9 +196,9 @@ class FallDetector:
                    for a, b in zip(points, points[1:])) / 2
         scale = tr.upright_torso_len or window[-1].torso_len
         seconds = window[-1].t - window[0].t
-        return path / scale / seconds, seconds
+        return float(path / scale / seconds), seconds
 
-    def _build_alert(self, track_id, tr, s, t):
+    def _build_alert(self, track_id, tr, s, t, ratio):
         down_for = t - tr.lying_since
         movement, moved_over = self._movement(tr, t) or (None, 0)
         hidden = tr.hidden_frames_while_down / max(tr.frames_while_down, 1)
@@ -172,7 +209,10 @@ class FallDetector:
                            f"in {tr.fast_drop['seconds']}s")
         else:
             reasons.append("Went down slowly (no sudden drop), like slumping or sliding down")
-        reasons.append(f"Lying down for {down_for:.0f}s (torso {s.angle_deg:.0f}° from upright)")
+        if tr.lying_by_box and ratio is not None:
+            reasons.append(f"Lying flat for {down_for:.0f}s (body {ratio:.1f}x wider than tall)")
+        else:
+            reasons.append(f"Lying down for {down_for:.0f}s (torso {s.angle_deg:.0f}° from upright)")
         if movement is not None:
             if movement < config.LOW_MOVEMENT_TORSOS_PER_SEC:
                 reasons.append(f"Very little movement in the last {moved_over:.0f}s")
@@ -191,6 +231,7 @@ class FallDetector:
             "metrics": {
                 "down_seconds": round(down_for, 1),
                 "torso_angle_deg": round(s.angle_deg),
+                "box_ratio": None if ratio is None else round(ratio, 2),
                 "drop_torsos": tr.fast_drop["torsos"] if fast else None,
                 "movement_torsos_per_sec": None if movement is None else round(movement, 2),
                 "hidden_fraction": round(hidden, 2),

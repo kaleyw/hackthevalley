@@ -8,6 +8,7 @@ Examples:
 """
 
 import argparse
+import csv
 import threading
 import time
 from datetime import datetime, timedelta, timezone
@@ -17,7 +18,7 @@ import requests
 from ultralytics import YOLO
 
 import config
-from detector import ALERTED, DOWN_PENDING, FallDetector
+from detector import ALERTED, DOWN_PENDING, MONITORING, FallDetector
 from help_watch import HelpWatcher
 
 STATE_COLORS = {DOWN_PENDING: (0, 165, 255), ALERTED: (0, 0, 255)}  # BGR
@@ -39,8 +40,8 @@ def send_event(alert):
         r.raise_for_status()
         print(f"[event] sent {alert['type']}: {r.json()} | " + "; ".join(alert["reasons"]))
         return r.json()["id"]
-    except requests.RequestException as e:
-        print(f"[event] backend unreachable, event not sent: {e}")
+    except Exception as e:  # never let a failed send stop the camera
+        print(f"[event] couldn't send alert to the backend: {e}")
         return None
 
 
@@ -68,6 +69,7 @@ def main():
     ap.add_argument("--device", default=config.DEVICE)
     ap.add_argument("--model", default=config.MODEL)
     ap.add_argument("--no-show", action="store_true", help="don't open a preview window")
+    ap.add_argument("--debug", action="store_true", help="show detector measurements on the video")
     args = ap.parse_args()
 
     source = int(args.source) if args.source.isdigit() else args.source
@@ -80,6 +82,16 @@ def main():
     stop = threading.Event()
     threading.Thread(target=heartbeat_loop, args=(stop,), daemon=True).start()
     start = time.monotonic()
+    last_state = {}
+
+    # Every run writes a per-frame log for tuning thresholds (data/ is not committed)
+    log_dir = config.ROOT / "data" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / f"run-{datetime.now():%Y%m%d-%H%M%S}.csv"
+    log_file = open(log_path, "w", newline="")
+    log = csv.writer(log_file)
+    log.writerow(["t", "track_id", "state", "torso_angle", "box_ratio", "torso_conf"])
+    print(f"[camera] running. Logging to {log_path}. Press q in the video window to stop.")
 
     results = model.track(source=source, device=args.device, tracker=config.TRACKER,
                           persist=True, stream=True, verbose=False)
@@ -95,16 +107,40 @@ def main():
                 xy = r.keypoints.xy.cpu().numpy()
                 conf = r.keypoints.conf.cpu().numpy() if r.keypoints.conf is not None else None
                 boxes = dict(zip(ids, xyxy))
+                frame_h, frame_w = r.orig_shape
+                m = config.EDGE_MARGIN_PX
                 for j, tid in enumerate(ids):
-                    alert = detector.update(tid, t, xy[j], None if conf is None else conf[j])
+                    x1, y1, x2, y2 = xyxy[j]
+                    # A person cut off by the frame edge can look wide while standing, so only
+                    # give the detector the box when the whole body is visible
+                    in_frame = x1 > m and y1 > m and x2 < frame_w - m and y2 < frame_h - m
+                    alert = detector.update(tid, t, xy[j], None if conf is None else conf[j],
+                                            xyxy[j] if in_frame else None)
                     if alert and (event_id := send_event(alert)) is not None:
                         helpers.watch(tid, event_id, xyxy[j], t)
+
+                    state = detector.state(tid)
+                    if state != last_state.get(tid, MONITORING):
+                        tr = detector.tracks[tid]
+                        how = "fast" if tr.fast_drop else "slowly"
+                        why = "body shape" if tr.lying_by_box else "torso angle"
+                        msg = {DOWN_PENDING: f"went down {how} (by {why}); alert if still down after "
+                                             f"{detector._alert_after(tr):.0f}s",
+                               ALERTED: "alert sent to dashboard", MONITORING: "back up; cancelled"}[state]
+                        print(f"[#{tid}] {msg}")
+                    last_state[tid] = state
+                    d = detector.tracks[tid].debug
+                    log.writerow([round(t, 2), tid, state, d.get("angle"), d.get("box_ratio"), d.get("conf")])
+
+                    x1, y1, _, y2 = xyxy[j].astype(int)
+                    if args.debug:
+                        cv2.putText(frame, detector.debug_text(tid), (x1, min(y2 + 22, frame.shape[0] - 8)),
+                                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
                     label = detector.status_text(tid, t)
                     if label:
                         color = STATE_COLORS[detector.state(tid)]
                         if helpers.helper_near(tid):
                             label, color = "SOMEONE WITH THEM", HELP_COLOR
-                        x1, y1 = xyxy[j][:2].astype(int)
                         cv2.putText(frame, f"#{tid} {label}", (x1, max(y1 - 30, 20)),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
 
@@ -118,6 +154,7 @@ def main():
                     break
     finally:
         stop.set()
+        log_file.close()
         cv2.destroyAllWindows()
 
 
