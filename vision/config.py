@@ -39,3 +39,11 @@ FORGET_TRACK_SECONDS = 10  # drop state for people we haven't seen in this long
 # Movement after going down (only used to explain alerts, never required to alert)
 MOVEMENT_WINDOW_SECONDS = 5.0
 LOW_MOVEMENT_TORSOS_PER_SEC = 0.15
+
+# Camera-confirmed help: after an alert, someone staying this close to the person for
+# this long counts as "someone is with them" (distance in multiples of the person's box size)
+HELP_RADIUS_BOXES = 1.0
+HELP_CONFIRM_SECONDS = 3.0
+HELP_KEEP_LAST_POSITION_SECONDS = 10.0  # helpers often block the camera's view of the person
+
+HEARTBEAT_SECONDS = 2.0  # how often the camera tells the backend it's alive

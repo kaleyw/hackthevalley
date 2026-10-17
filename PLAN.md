@@ -70,7 +70,17 @@
 - [x] Keep a log of every status change (who, what, when)
 - [x] Duplicate suppression: one alert per ongoing event for the same person/camera
 - [ ] Save a skeleton-only snapshot when an alert fires (no faces, no raw footage)
-- [ ] Camera heartbeat: mark a camera offline if the vision script stops sending updates
+- [x] Camera heartbeat: mark a camera offline if the vision script stops sending updates
+
+## 4b. Confirm help actually reaches the person (judge's key stat)
+- [x] Record when the person went down, not just when the alert fired
+- [x] Lifecycle: open → accepted → "I'm here" (on scene) → resolved with an outcome
+- [x] Resolving requires arrival and an outcome (person OK, helped on site, medical help called, person gone)
+- [x] Camera confirms help: someone stays next to the person for 3 s after the alert
+- [x] Dashboard timeline per alert: went down → alert → accepted → help reached → resolved
+- [x] Stats: % of alerts where help reached the person, median time from going down to help
+- [ ] Test camera-confirmed help live: teammate lies down, another walks over and kneels beside them
+- [ ] Put the "help reached" numbers from our tests on the results slide
 
 ## 5. Responder dashboard
 - [x] Live list of active alerts and history
@@ -79,9 +89,9 @@
 - [x] Alert sound and visual highlight for new alerts
 - [x] Event history/log view (who did what, when)
 - [ ] Show the skeleton-only snapshot on each alert
-- [ ] Show a "Camera offline" warning
-- [ ] Show "Backup notified" when an alert auto-escalates
-- [ ] Check the dashboard works at phone width (responders on the move)
+- [x] Show a "Camera offline" warning
+- [x] Show "Backup notified" when an alert auto-escalates
+- [x] Check the dashboard works at phone width (responders on the move)
 
 ## 6. Live updates
 - [x] WebSocket from backend to dashboard, with auto-reconnect
@@ -90,7 +100,7 @@
 
 ## 7. Notifications and escalation
 - [x] Dashboard alert works
-- [ ] Backup escalation: if nobody accepts within ___ seconds, escalate automatically and notify a backup responder
+- [x] Backup escalation: nobody accepts in 30 s, or nobody arrives in 90 s after accepting → escalate automatically
 - [ ] Optional: SMS or email to the on-duty responder (only if setup is quick, e.g. Twilio trial)
 - [ ] "Contact emergency services" is a simulated action after human review (never auto-call 911)
 
@@ -125,7 +135,7 @@
 ## 11. Integration and demo
 - [x] End-to-end test: event → backend → dashboard → acknowledge
 - [ ] Full live test: webcam → detection → dashboard → acknowledge
-- [ ] Test the backup escalation path
+- [x] Test the backup escalation path
 - [ ] Rehearse the demo: teammate slowly collapses onto a mat, alert appears with reasons, responder accepts
 - [ ] Record a backup demo video in case the live demo fails
 - [ ] Do a full demo run-through at least twice
@@ -136,8 +146,8 @@
 - [ ] Slide: live demo
 - [ ] Slide: why each alert fires (explanations) and how responders act
 - [ ] Slide: safety, dignity, privacy and autonomy (KAZE's four priorities, one point each)
-- [ ] Slide: results from testing (honest numbers)
-- [ ] Slide: limitations and future work (fine-tuning on real CCTV angles, multi-camera, real responder integration)
+- [ ] Slide: results from testing: alerts caught, false alerts, and % where help confirmed reaching the person (the judge's key stat)
+- [ ] Slide: limitations and future work (fine-tuning on real CCTV angles, multi-camera, places without CCTV like dorms and clubs via phone/wearable triggers into the same pipeline)
 - [ ] Slide: team
 - [ ] Practise the pitch and time it
 - [ ] Prepare answers to likely judge questions (false alarms, privacy, people sleeping in stations, accuracy, why not call 911)

@@ -51,7 +51,8 @@ curl -X POST localhost:8000/events -H 'Content-Type: application/json' \
 ## Repo layout
 
 ```
-vision/      run.py (main loop), detector.py (fall logic), config.py (all thresholds), bytetrack.yaml
+vision/      run.py (main loop), detector.py (collapse logic), help_watch.py (camera-confirmed help),
+             config.py (all thresholds), bytetrack.yaml
 backend/     app/main.py (API + WebSocket), app/db.py (SQLite)
 dashboard/   src/App.jsx (responder dashboard)
 data/        test videos (not committed; see data/README.md)
@@ -75,12 +76,30 @@ PLAN.md      master checklist
   ],
   "track_id": 3,
   "detected_at": "2026-10-17T18:00:00+00:00",
+  "went_down_at": "2026-10-17T17:59:57+00:00",
   "metrics": {"down_seconds": 3.0, "torso_angle_deg": 85, "drop_torsos": 1.1, "movement_torsos_per_sec": 0.02, "hidden_fraction": 0.0}
 }
 ```
-`type` is `possible_fall` (fast fall, high urgency, alerts after 3 s down) or `person_down` (slow collapse, medium urgency, alerts after 12 s down).
+`type` is `possible_fall` (fast fall, high urgency, alerts after 3 s down) or `person_down` (slow collapse, medium urgency, alerts after 12 s down). `went_down_at` is when the person went down, so we can measure the whole gap until help arrives.
 
-Statuses: `open` → `acknowledged` → `resolved`, plus `escalated` and `dismissed` (dismiss needs a reason). Actions: `POST /events/{id}/acknowledge|escalate|dismiss|resolve` with `{"actor": "name", "reason": "..."}`. A second alert for the same person on the same camera within 2 minutes is suppressed.
+## Confirming help actually reaches the person
+
+Every alert is tracked until someone is confirmed with the person:
+
+```
+went down → alert (open) → responder accepts (acknowledged) → responder arrives (on_scene) → resolved + outcome
+                 │ nobody accepts in 30 s               │ accepted, nobody arrives in 90 s
+                 ▼                                      ▼
+           backup responder notified              escalated again
+```
+
+- **Responder confirms:** `POST /events/{id}/acknowledge`, then `/arrive` ("I'm here"), then `/resolve` with an `outcome`: `person_ok`, `helped_on_site`, `medical_help_called` or `person_gone`. Resolving requires arriving first. `/dismiss` (with a `reason`) is for false alarms.
+- **Camera confirms:** after an alert, if another person stays next to the person for 3 s, the vision script calls `POST /events/{id}/help-detected`.
+- **Watchdog:** escalates alerts that stall. Timeouts are set with `ACK_TIMEOUT_SECONDS` and `ARRIVAL_TIMEOUT_SECONDS` (defaults 30 and 90).
+- **Camera heartbeat:** the vision script calls `POST /cameras/{id}/heartbeat` every 2 s; the dashboard warns when a camera goes quiet.
+- **Stats:** `GET /stats` returns % of alerts where help reached the person, median time from going down to help, camera-verified count and escalations.
+
+A second alert for the same person on the same camera within 2 minutes is suppressed.
 
 ## Notes
 

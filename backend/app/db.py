@@ -1,4 +1,4 @@
-"""SQLite storage for events and their status history."""
+"""SQLite storage for events, their status history, and camera heartbeats."""
 
 import json
 import sqlite3
@@ -9,16 +9,24 @@ DB_PATH = Path(__file__).resolve().parent.parent / "events.db"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS events (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    camera_id   TEXT NOT NULL,
-    location    TEXT NOT NULL,
-    type        TEXT NOT NULL,
-    track_id    INTEGER,
-    detected_at TEXT NOT NULL,
-    created_at  TEXT NOT NULL,
-    updated_at  TEXT NOT NULL,
-    status      TEXT NOT NULL,
-    details     TEXT NOT NULL DEFAULT '{}'
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    camera_id        TEXT NOT NULL,
+    location         TEXT NOT NULL,
+    type             TEXT NOT NULL,
+    track_id         INTEGER,
+    detected_at      TEXT NOT NULL,          -- when the alert fired
+    went_down_at     TEXT,                   -- when the person went down (before the alert wait)
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL,
+    status           TEXT NOT NULL,          -- open, acknowledged, on_scene, resolved, dismissed
+    escalation_level INTEGER NOT NULL DEFAULT 0,  -- 0 none, 1 backup notified, 2 supervisor notified
+    assigned_to      TEXT,
+    acknowledged_at  TEXT,
+    arrived_at       TEXT,                   -- responder tapped "I'm here"
+    help_detected_at TEXT,                   -- camera saw someone stay with the person
+    resolved_at      TEXT,
+    outcome          TEXT,
+    details          TEXT NOT NULL DEFAULT '{}'
 );
 CREATE TABLE IF NOT EXISTS event_log (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -28,7 +36,19 @@ CREATE TABLE IF NOT EXISTS event_log (
     actor    TEXT,
     reason   TEXT
 );
+CREATE TABLE IF NOT EXISTS cameras (
+    id        TEXT PRIMARY KEY,
+    location  TEXT NOT NULL,
+    last_seen TEXT NOT NULL
+);
 """
+
+# Columns added after the first version; added to older databases on startup
+NEW_EVENT_COLUMNS = {
+    "went_down_at": "TEXT", "escalation_level": "INTEGER NOT NULL DEFAULT 0", "assigned_to": "TEXT",
+    "acknowledged_at": "TEXT", "arrived_at": "TEXT", "help_detected_at": "TEXT",
+    "resolved_at": "TEXT", "outcome": "TEXT",
+}
 
 
 def now():
@@ -44,6 +64,10 @@ def connect():
 def init():
     with connect() as conn:
         conn.executescript(SCHEMA)
+        existing = {r["name"] for r in conn.execute("PRAGMA table_info(events)")}
+        for col, decl in NEW_EVENT_COLUMNS.items():
+            if col not in existing:
+                conn.execute(f"ALTER TABLE events ADD COLUMN {col} {decl}")
 
 
 def _row_to_event(conn, row):
@@ -72,28 +96,58 @@ def find_active_duplicate(camera_id, track_id, since_iso):
         row = conn.execute(
             """SELECT id FROM events
                WHERE camera_id = ? AND track_id IS ? AND created_at >= ?
-                 AND status IN ('open', 'acknowledged', 'escalated')
+                 AND status IN ('open', 'acknowledged', 'on_scene')
                ORDER BY id DESC LIMIT 1""",
             (camera_id, track_id, since_iso)).fetchone()
         return row["id"] if row else None
 
 
-def create_event(camera_id, location, type_, track_id, detected_at, details):
+def create_event(camera_id, location, type_, track_id, detected_at, went_down_at, details):
     ts = now()
     with connect() as conn:
         cur = conn.execute(
-            """INSERT INTO events (camera_id, location, type, track_id, detected_at,
+            """INSERT INTO events (camera_id, location, type, track_id, detected_at, went_down_at,
                                    created_at, updated_at, status, details)
-               VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)""",
-            (camera_id, location, type_, track_id, detected_at, ts, ts, json.dumps(details)))
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'open', ?)""",
+            (camera_id, location, type_, track_id, detected_at, went_down_at, ts, ts, json.dumps(details)))
         conn.execute("INSERT INTO event_log (event_id, at, action, actor) VALUES (?, ?, 'created', 'system')",
                      (cur.lastrowid, ts))
         return cur.lastrowid
 
 
-def set_status(event_id, status, actor=None, reason=None):
+def update_event(event_id, action, actor=None, reason=None, **fields):
+    """Set any event columns and record the action in the event's log."""
     ts = now()
+    fields["updated_at"] = ts
+    cols = ", ".join(f"{k} = ?" for k in fields)
     with connect() as conn:
-        conn.execute("UPDATE events SET status = ?, updated_at = ? WHERE id = ?", (status, ts, event_id))
+        conn.execute(f"UPDATE events SET {cols} WHERE id = ?", (*fields.values(), event_id))
         conn.execute("INSERT INTO event_log (event_id, at, action, actor, reason) VALUES (?, ?, ?, ?, ?)",
-                     (event_id, ts, status, actor, reason))
+                     (event_id, ts, action, actor, reason))
+    return ts
+
+
+def events_needing_escalation(ack_before_iso, arrive_before_iso):
+    """Open events nobody accepted in time, and accepted events where nobody arrived in time."""
+    with connect() as conn:
+        unacked = conn.execute(
+            "SELECT id FROM events WHERE status = 'open' AND escalation_level < 1 AND created_at < ?",
+            (ack_before_iso,)).fetchall()
+        not_arrived = conn.execute(
+            """SELECT id FROM events WHERE status = 'acknowledged' AND escalation_level < 2
+               AND arrived_at IS NULL AND help_detected_at IS NULL AND acknowledged_at < ?""",
+            (arrive_before_iso,)).fetchall()
+        return [r["id"] for r in unacked], [r["id"] for r in not_arrived]
+
+
+def camera_heartbeat(camera_id, location):
+    with connect() as conn:
+        conn.execute(
+            """INSERT INTO cameras (id, location, last_seen) VALUES (?, ?, ?)
+               ON CONFLICT(id) DO UPDATE SET location = excluded.location, last_seen = excluded.last_seen""",
+            (camera_id, location, now()))
+
+
+def list_cameras():
+    with connect() as conn:
+        return [dict(r) for r in conn.execute("SELECT * FROM cameras ORDER BY id")]
