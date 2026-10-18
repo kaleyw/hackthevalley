@@ -88,14 +88,12 @@ def main():
     ap.add_argument("--debug", action="store_true", help="show detector measurements on the video")
     ap.add_argument("--stream-port", type=int, default=config.STREAM_PORT,
                     help="serve the live preview for the dashboard on this port (0 = off)")
-    ap.add_argument("--stream-view", choices=["skeleton", "video"], default="skeleton",
-                    help="skeleton = blurred background with the pose overlay (privacy default); video = raw picture")
     args = ap.parse_args()
 
     hub = FrameHub() if args.stream_port else None
     if hub:
         serve(hub, args.stream_port)
-        print(f"[camera] live preview for the dashboard on http://127.0.0.1:{args.stream_port}/stream.mjpg ({args.stream_view} view)")
+        print(f"[camera] live preview for the dashboard on http://127.0.0.1:{args.stream_port}/stream.mjpg")
 
     source = int(args.source) if args.source.isdigit() else args.source
     # Use video time for files so timings don't depend on how fast we process frames
@@ -124,8 +122,7 @@ def main():
     try:
         for i, r in enumerate(results):
             t = i / fps if fps else time.monotonic() - start
-            # Skeleton view keeps faces and surroundings blurred; only the pose overlay is sharp
-            frame = r.plot(img=cv2.GaussianBlur(r.orig_img, (0, 0), 18)) if args.stream_view == "skeleton" else r.plot()
+            frame = r.plot()
             boxes = {}
 
             if r.boxes is not None and r.boxes.id is not None and r.keypoints is not None:

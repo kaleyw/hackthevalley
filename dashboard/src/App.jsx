@@ -444,7 +444,7 @@ function AlertCard({ event, cameraOnline, now, post, onDismiss, onResolve, onMap
   )
 }
 
-// Live preview from vision/run.py (skeleton over a blurred picture by default). Falls back to the
+// Live preview from vision/run.py (camera picture with the pose skeleton drawn on top). Falls back to the
 // placeholder when the camera is offline or the stream can't be reached, and retries on its own.
 function CameraPanel({ cameraId, online }) {
   const [failed, setFailed] = useState(false)
