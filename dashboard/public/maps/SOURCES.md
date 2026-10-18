@@ -15,7 +15,9 @@ Credit: City of Toronto / Toronto Transit Commission.
 
 The snapshot contains 68 station points and five route features. The five Line 3
 Scarborough RT stations (McCowan, Scarborough Centre, Midland, Ellesmere, Lawrence East)
-were removed because the line closed in 2023 and has no route geometry in the data. It is not a statement of current service, closures,
+were removed because the line closed in 2023 and has no route geometry in the data.
+Lines 5 (Eglinton) and 6 (Finch West) are in the route data but hidden on the map,
+because the station layer has no stops for these light-rail lines. It is not a statement of current service, closures,
 completeness, platform layouts, entrances, accessibility, or emergency access.
 Official station points are treated as **approximate station locations**, not
 surveyed platform or entrance positions. Older/renamed station labels may remain.

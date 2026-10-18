@@ -19,6 +19,8 @@ export class MapBoundary extends Component {
 const DOWNTOWN = [43.6510, -79.3810]
 const STREET_TILES = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
 const STREET_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+// Lines 5 (Eglinton) and 6 (Finch West): the station data has no stops for them, so they're hidden
+const HIDDEN_LINES = ['5', '6']
 const isClosed = (status) => ['resolved', 'dismissed'].includes(status)
 
 function useStreetMapSetting() {
@@ -63,7 +65,7 @@ export function NetworkMap({ contexts, selectedId, onSelect, monitored = [] }) {
       return r.json()
     }))).then(([lines, stations]) => {
       if (cancelled) return
-      L.geoJSON(lines, { style: (f) => ({ color: f.properties.ROUTE_COLOR ? `#${f.properties.ROUTE_COLOR.replace('#', '')}` : '#64748b', weight: 5, opacity: 0.9 }) }).addTo(instance)
+      L.geoJSON(lines, { filter: (f) => !HIDDEN_LINES.includes(String(f.properties.ROUTE_SHORT_NAME)), style: (f) => ({ color: f.properties.ROUTE_COLOR ? `#${f.properties.ROUTE_COLOR.replace('#', '')}` : '#64748b', weight: 5, opacity: 0.9 }) }).addTo(instance)
       L.geoJSON(stations, {
         pointToLayer: (_, latlng) => L.circleMarker(latlng, { radius: 3.5, color: '#334155', fillColor: 'white', fillOpacity: 1, weight: 1.5 }),
         onEachFeature: (f, layer) => {
