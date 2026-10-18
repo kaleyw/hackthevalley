@@ -19,7 +19,7 @@ DEVICE = "mps"  # Apple Silicon GPU; use "cpu" if mps errors, or 0 for an NVIDIA
 
 # Where events go
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
-CAMERA_LOCATION = os.getenv("CAMERA_LOCATION", "Demo venue - Room A")
+CAMERA_LOCATION = os.getenv("CAMERA_LOCATION", "Union Station")
 CAMERA_ID = "cam-1"
 
 # Keypoints below this confidence count as "not visible" (pose models are less confident

@@ -17,7 +17,7 @@ export default function ResponderView({ eventId }) {
           throw new Error([401, 403, 404, 410].includes(response.status) ? 'This responder link is invalid, expired, or revoked.' : 'Location service unavailable. Showing the last received information.')
         }
         const value = await response.json()
-        if (!closed) { setContext({ ...value, receivedAt: Date.now() }); setConnected(true); setError('') }
+        if (!closed) { setContext(value); setConnected(true); setError('') }
       } catch (e) { if (!closed) { setConnected(false); setError(e.message) } }
     }
     load()
@@ -25,12 +25,12 @@ export default function ResponderView({ eventId }) {
     return () => { closed = true; clearInterval(timer) }
   }, [eventId, token])
   return <main className="responder-view">
-    <p className="map-eyebrow">RESTRICTED · READ-ONLY · DEMO RESPONDER VIEW</p>
+    <p className="map-eyebrow">RESTRICTED · READ-ONLY · RESPONDER VIEW</p>
     <h1>Incident #{eventId}</h1>
-    <p className="map-notice">Demonstration only. This page does not place calls or contact emergency services. A map link being opened does not confirm delivery or responder acknowledgment.</p>
+    <p className="map-notice">This page does not place calls or contact emergency services. Opening this link does not tell the control room you've seen it.</p>
     {error && <p role="alert" className="map-warning">{error}</p>}
     {context ? <>
-      <MapBoundary><NetworkMap contexts={[context]} selectedId={Number(eventId)} disconnected={!connected} /></MapBoundary>
+      <MapBoundary><NetworkMap contexts={[context]} selectedId={Number(eventId)} /></MapBoundary>
       <LocationDetails context={context} connected={connected} />
       <div className="map-actions"><button onClick={async () => setNotice(await copyText(context.briefing) ? 'Briefing copied' : 'Select the briefing below to copy it')}>Copy concise location briefing</button></div>
       <textarea readOnly aria-label="Responder location briefing" value={context.briefing} rows={5} />

@@ -131,10 +131,12 @@ def update_event(event_id, action, actor=None, reason=None, **fields):
 
 
 def unacknowledged_events(created_before_iso):
-    """Open events nobody accepted in time (once someone accepts, they know where to go)."""
+    """Open events nobody accepted in time and nobody is with yet. Once someone accepts,
+    they know where to go; if the camera already sees someone with the person, help is there."""
     with connect() as conn:
         rows = conn.execute(
-            "SELECT id FROM events WHERE status = 'open' AND escalation_level < 1 AND created_at < ?",
+            """SELECT id FROM events WHERE status = 'open' AND escalation_level < 1
+               AND help_detected_at IS NULL AND created_at < ?""",
             (created_before_iso,)).fetchall()
         return [r["id"] for r in rows]
 

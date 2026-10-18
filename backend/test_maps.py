@@ -1,5 +1,6 @@
 """Map acceptance checks using isolated SQLite and HTTP clients; no outbound calls."""
 import asyncio
+import os
 import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
@@ -34,13 +35,13 @@ class MapTests(unittest.TestCase):
         self.temp.cleanup()
 
     def create(self, camera='test-cam'):
-        response = self.client.post('/events', json={'camera_id': camera, 'location': 'Demo venue', 'detected_at': db.now(), 'track_id': 1})
+        response = self.client.post('/events', json={'camera_id': camera, 'location': 'Union Station', 'detected_at': db.now(), 'track_id': 1})
         self.assertEqual(response.status_code, 200)
         return response.json()['id']
 
     def configure(self, metadata=None, camera='test-cam'):
         response = self.client.put(f'/maps/cameras/{camera}', headers=HEADERS,
-            json=metadata or {'kind': 'platform', 'station_id': '1036', 'platform_label': 'Demo northbound platform', 'direction': 'northbound'})
+            json=metadata or {'kind': 'platform', 'station_id': '1036', 'platform_label': 'Northbound platform', 'direction': 'northbound'})
         self.assertEqual(response.status_code, 200, response.text)
         return response.json()
 
@@ -53,9 +54,16 @@ class MapTests(unittest.TestCase):
         with patch.object(main, 'utcnow', return_value=at):
             asyncio.run(main.watchdog_pass({'cameras': None}))
 
-    def test_existing_camera_records_do_not_require_metadata(self):
+    def test_unconfigured_cameras_default_to_union_station(self):
+        event_id = self.create('new-cam')
+        location = self.client.get(f'/maps/events/{event_id}').json()['snapshot']['location']
+        self.assertEqual(location['station_name'], 'UNION')
+        self.assertEqual(location['coordinates']['precision'], 'station_centroid')
+
+    def test_default_station_can_be_turned_off(self):
         self.client.post('/cameras/old/heartbeat', json={'location': 'Old camera'})
-        event_id = self.create('old')
+        with patch.dict(os.environ, {'CAMERA_STATION': ''}):
+            event_id = self.create('old')
         c = self.client.get(f'/maps/events/{event_id}').json()
         self.assertIsNone(c['snapshot']['location'])
         self.assertIn('location unavailable', c['briefing'])
@@ -151,17 +159,13 @@ class MapTests(unittest.TestCase):
             event_id = self.create()
         self.assertEqual(db.get_event(event_id)['status'], 'open')
 
-    def test_map_reads_links_and_transfer_do_not_change_lifecycle_or_timers(self):
-        self.configure({'kind': 'train', 'train_id': 'DEMO-T1', 'car_id': 'car-2', 'source': 'simulated'})
+    def test_map_reads_and_links_do_not_change_lifecycle_or_timers(self):
+        self.configure()
         event_id = self.create()
         before = db.get_event(event_id)
         self.client.get(f'/maps/events/{event_id}')
         self.link(event_id)
-        transfer = self.client.post(f'/maps/events/{event_id}/transfer', headers=HEADERS, json={'location': {'kind': 'platform', 'station_name': 'KING', 'platform_label': 'Staff-confirmed platform'}})
-        self.assertEqual(transfer.status_code, 200)
         self.assertEqual(db.get_event(event_id), before)
-        self.assertEqual(transfer.json()['snapshot']['location']['kind'], 'train')
-        self.assertEqual(transfer.json()['transfer']['location']['kind'], 'platform')
 
     def test_restricted_access_scope_expiration_revocation_and_renewal(self):
         event_id = self.create()
@@ -205,44 +209,7 @@ class MapTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(store.incident(event_id)['snapshot'], snapshot)
         result = self.responder.get(f'/api/responder/events/{event_id}', headers={'X-Responder-Token': token})
-        self.assertIn('QUEEN', result.json()['briefing'])
-
-    def test_train_updates_do_not_overwrite_detection_and_stale_is_explicit(self):
-        self.configure({'kind': 'train', 'train_id': 'DEMO-T1', 'car_id': 'demo-car', 'source': 'simulated'})
-        provider = maps.SimulatedTrainProvider()
-        provider.control('running')
-        at = maps.now() - timedelta(seconds=1)
-        store.save_train(provider.samples(at)[0])
-        event_id = self.create()
-        original = store.incident(event_id)['snapshot']
-        self.assertIsNotNone(original['train_position'])
-        later = at + timedelta(seconds=5)
-        store.save_train(provider.samples(later)[0])
-        c = self.client.get(f'/maps/events/{event_id}').json()
-        self.assertEqual(c['snapshot'], original)
-        self.assertNotEqual(c['latest_train']['latest']['lat'], original['train_position']['lat'])
-        with patch.object(maps, 'now', return_value=later + timedelta(seconds=11)):
-            c = self.client.get(f'/maps/events/{event_id}').json()
-            self.assertTrue(c['latest_train']['stale'])
-            self.assertIn('STALE', c['briefing'])
-
-    def test_simulator_pause_disconnect_and_reconnect(self):
-        provider = maps.SimulatedTrainProvider()
-        at = maps.now()
-        self.assertEqual(provider.samples(at), [])
-        provider.control('running')
-        first = provider.samples(at)[0]
-        moving = provider.samples(at + timedelta(seconds=10))[0]
-        self.assertNotEqual(first['lat'], moving['lat'])
-        provider.control('paused')
-        paused = provider.samples(at + timedelta(seconds=20))[0]
-        self.assertEqual(paused['lat'], moving['lat'])
-        provider.control('disconnected')
-        self.assertEqual(provider.samples(at + timedelta(seconds=100)), [])
-        provider.control('running')
-        reconnect = provider.samples(at + timedelta(seconds=200))[0]
-        self.assertEqual(reconnect['lat'], paused['lat'])
-        self.assertEqual(reconnect['source'], 'simulated')
+        self.assertIn('Queen Station', result.json()['briefing'])
 
 
 if __name__ == '__main__':

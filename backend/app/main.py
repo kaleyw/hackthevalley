@@ -154,18 +154,13 @@ async def lifespan(_):
     db.init()
     try:
         maps.store.init()
-        maps.store.simulation_mode(maps.provider.mode)
     except Exception:
         log.exception("Map storage unavailable; existing alerts continue")
     task = asyncio.create_task(watchdog())
-    map_task = asyncio.create_task(maps.train_loop())
     yield
     task.cancel()
-    map_task.cancel()
     with suppress(asyncio.CancelledError):
         await task
-    with suppress(asyncio.CancelledError):
-        await map_task
 
 
 app = FastAPI(title="Hack the Valley collapse alerts", lifespan=lifespan)

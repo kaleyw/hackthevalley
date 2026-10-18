@@ -1,4 +1,4 @@
-"""Separate read-only demo origin. Share this port, never the unauthenticated dashboard.
+"""Separate read-only responder origin. Share this port, never the unauthenticated dashboard.
 
 Build dashboard first, then: uvicorn backend.app.responder:app --port 8001
 """
@@ -16,7 +16,7 @@ async def lifespan(_):
     yield
 
 
-app = FastAPI(title='Restricted demo responder view', docs_url=None, redoc_url=None,
+app = FastAPI(title='Restricted responder view', docs_url=None, redoc_url=None,
               openapi_url=None, lifespan=lifespan)
 
 
@@ -36,7 +36,7 @@ app.mount('/assets', StaticFiles(directory=str(dist / 'assets'), check_dir=False
 app.mount('/maps', StaticFiles(directory=str(maps.NETWORK), check_dir=False), name='map-geography')
 
 
-@app.get('/demo/responder/{event_id}')
+@app.get('/responder/{event_id}')
 def page(event_id: int):
     if not (dist / 'index.html').exists():
         raise HTTPException(503, 'Build the responder UI with npm run build --prefix dashboard')

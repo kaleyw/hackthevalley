@@ -11,9 +11,6 @@ CREATE TABLE IF NOT EXISTS map_handoffs (
  event_id INTEGER PRIMARY KEY REFERENCES events(id), nonce TEXT NOT NULL,
  generated_at TEXT NOT NULL, expires_at TEXT NOT NULL, revoked_at TEXT,
  escalation_seen INTEGER NOT NULL DEFAULT 0);
-CREATE TABLE IF NOT EXISTS map_trains (
- train_id TEXT PRIMARY KEY, latest TEXT NOT NULL, previous TEXT);
-CREATE TABLE IF NOT EXISTS map_provider_state (id INTEGER PRIMARY KEY, mode TEXT NOT NULL);
 """
 
 
@@ -46,13 +43,14 @@ def incident(event_id):
     if not row:
         return None
     result = dict(row)
-    for key in ('snapshot', 'supplemental', 'transfer'):
+    result.pop('transfer', None)  # column kept for older databases; no longer used
+    for key in ('snapshot', 'supplemental'):
         result[key] = json.loads(result[key]) if result[key] else None
     return result
 
 
 def annotate(event_id, field, value):
-    if field not in ('supplemental', 'transfer'):
+    if field != 'supplemental':
         raise ValueError('unsupported map field')
     with db.connect() as conn:
         conn.execute(f'UPDATE map_incidents SET {field}=?, updated_at=? WHERE event_id=?',
@@ -79,29 +77,3 @@ def ensure_handoff(event_id, nonce, expires_at, escalation=False, renew=False):
 def revoke(event_id):
     with db.connect() as conn:
         conn.execute('UPDATE map_handoffs SET revoked_at=? WHERE event_id=?', (db.now(), event_id))
-
-
-def train(train_id):
-    with db.connect() as conn:
-        row = conn.execute('SELECT * FROM map_trains WHERE train_id=?', (train_id,)).fetchone()
-    return ({'latest': json.loads(row['latest']), 'previous': json.loads(row['previous']) if row['previous'] else None}
-            if row else None)
-
-
-def save_train(sample):
-    old = train(sample['train_id'])
-    # Out-of-order telemetry must not move a train backwards in observation time.
-    if old and old['latest']['observed_at'] >= sample['observed_at']:
-        return False
-    with db.connect() as conn:
-        conn.execute('INSERT INTO map_trains VALUES (?,?,?) ON CONFLICT(train_id) DO UPDATE SET latest=excluded.latest, previous=excluded.previous',
-                     (sample['train_id'], json.dumps(sample), json.dumps(old['latest']) if old else None))
-    return True
-
-
-def simulation_mode(mode=None):
-    with db.connect() as conn:
-        if mode is not None:
-            conn.execute('INSERT INTO map_provider_state VALUES (1,?) ON CONFLICT(id) DO UPDATE SET mode=excluded.mode', (mode,))
-        row = conn.execute('SELECT mode FROM map_provider_state WHERE id=1').fetchone()
-    return row['mode'] if row else 'disconnected'

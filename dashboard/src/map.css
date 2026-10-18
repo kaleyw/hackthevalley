@@ -30,7 +30,6 @@
 .incident-stack-heading { color: #334155; font: 600 11px/20px system-ui; white-space: nowrap; }
 .map-overview-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .map-overview-heading button { flex-shrink: 0; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 8px; background: white; color: #334155; cursor: pointer; font-size: 12px; }
-.train-pin { display: inline-block; background: #0f172a; color: white; border: 2px solid white; border-radius: 7px; padding: 4px 7px; font: 600 11px system-ui; white-space: nowrap; }
 .responder-view { max-width: 850px; margin: 0 auto; padding: 28px 20px; display: grid; gap: 18px; }
 .responder-view h1 { font-size: 28px; font-weight: 700; }
 @media (max-width: 1000px) { .dashboard-map-layout { grid-template-columns: minmax(0, 1fr); } .incident-map-panel { position: static; max-height: none; order: -1; } .network-map { height: 300px; } }

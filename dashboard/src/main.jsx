@@ -4,7 +4,7 @@ import './index.css'
 import App from './App.jsx'
 import ResponderView from './ResponderView.jsx'
 
-const responderRoute = window.location.pathname.match(/^\/demo\/responder\/(\d+)$/)
+const responderRoute = window.location.pathname.match(/^\/responder\/(\d+)$/)
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
