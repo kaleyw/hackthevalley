@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import IncidentMapPanel, { MapBoundary } from './IncidentMap.jsx'
 
 const STATUS = {
   open: { label: 'Waiting for responder', style: 'bg-red-100 text-red-800' },
@@ -245,7 +246,7 @@ function Timeline({ event }) {
   )
 }
 
-function EventCard({ event, responder, now }) {
+function EventCard({ event, responder, now, onMap }) {
   const [showLog, setShowLog] = useState(false)
   const [resolving, setResolving] = useState(false)
   const [outcome, setOutcome] = useState('')
@@ -281,7 +282,7 @@ function EventCard({ event, responder, now }) {
   const gotUp = active && event.got_up_at
 
   return (
-    <li className={`rounded-xl border bg-white p-4 shadow-sm ${isOpen ? 'border-red-400 ring-2 ring-red-200' : 'border-slate-200'}`}>
+    <li id={`incident-${event.id}`} className={`rounded-xl border bg-white p-4 shadow-sm ${isOpen ? 'border-red-400 ring-2 ring-red-200' : 'border-slate-200'}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="font-semibold text-slate-900">
@@ -329,6 +330,7 @@ function EventCard({ event, responder, now }) {
       )}
 
       <Timeline event={event} />
+      <button onClick={() => onMap(event.id)} className="mt-3 text-sm font-medium text-blue-700 underline">View incident #{event.id} on map</button>
 
       {reasons.length > 0 && (
         <div className="mt-3 rounded-lg bg-slate-50 p-3">
@@ -396,6 +398,18 @@ export default function App() {
   const now = useNow()
   const sound = useAlertSound()
   useSecurityDings(events, cameras, sound.play)
+  const [selectedId, setSelectedId] = useState(null)
+  const newestId = useRef(null)
+  useEffect(() => {
+    if (events[0] && newestId.current !== events[0].id) {
+      newestId.current = events[0].id
+      setSelectedId(events[0].id)
+    }
+  }, [events])
+  const selectIncident = (id) => {
+    setSelectedId(id)
+    document.getElementById(`incident-${id}`)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }
   const [responder, setResponder] = useState(() => {
     try { return localStorage.getItem('responder') || '' } catch { return '' }
   })
@@ -412,7 +426,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="border-b bg-white">
-        <div className="mx-auto flex max-w-3xl flex-wrap items-center justify-between gap-3 px-4 py-4">
+        <div className="mx-auto flex max-w-[1500px] flex-wrap items-center justify-between gap-3 px-4 py-4">
           <h1 className="text-xl font-bold text-slate-900">Collapse Alerts</h1>
           <div className="flex flex-wrap items-center gap-3 text-sm">
             <input
@@ -442,7 +456,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="mx-auto max-w-3xl space-y-6 px-4 py-6">
+      <main className="mx-auto max-w-[1500px] space-y-6 px-4 py-6">
         {!sound.enabled && (
           <button className="w-full rounded-xl border border-amber-300 bg-amber-50 p-3 text-left text-sm text-amber-900">
             🔔 <b>Alert sounds are off.</b> Click here once to turn them on, so you hear new alerts.
@@ -456,20 +470,26 @@ export default function App() {
 
         <StatsBar stats={stats} />
 
+        <div className={events.length ? 'dashboard-map-layout' : ''}>
+        <div className="space-y-6">
+
         <section>
           <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">Active ({active.length})</h2>
           {active.length === 0 ? (
             <p className="rounded-xl border border-dashed border-slate-300 p-6 text-center text-slate-500">No active alerts</p>
           ) : (
-            <ul className="space-y-3">{active.map((e) => <EventCard key={e.id} event={e} responder={responder} now={now} />)}</ul>
+            <ul className="space-y-3">{active.map((e) => <EventCard key={e.id} event={e} responder={responder} now={now} onMap={selectIncident} />)}</ul>
           )}
         </section>
         {past.length > 0 && (
           <section>
             <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-slate-500">History</h2>
-            <ul className="space-y-3">{past.map((e) => <EventCard key={e.id} event={e} responder={responder} now={now} />)}</ul>
+            <ul className="space-y-3">{past.map((e) => <EventCard key={e.id} event={e} responder={responder} now={now} onMap={selectIncident} />)}</ul>
           </section>
         )}
+        </div>
+        {events.length > 0 && <MapBoundary><IncidentMapPanel events={events} selectedId={selectedId ?? events[0].id} onSelect={selectIncident} connected={connected} /></MapBoundary>}
+        </div>
       </main>
     </div>
   )
