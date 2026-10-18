@@ -401,9 +401,11 @@ export default function App() {
   const [selectedId, setSelectedId] = useState(null)
   const newestId = useRef(null)
   useEffect(() => {
-    if (events[0] && newestId.current !== events[0].id) {
-      newestId.current = events[0].id
-      setSelectedId(events[0].id)
+    // Follow the newest active alert; old resolved/dismissed ones aren't auto-selected
+    const newest = events.find((e) => ACTIVE.includes(e.status))
+    if (newest && newestId.current !== newest.id) {
+      newestId.current = newest.id
+      setSelectedId(newest.id)
     }
   }, [events])
   const selectIncident = (id) => {
@@ -488,7 +490,7 @@ export default function App() {
           </section>
         )}
         </div>
-        {events.length > 0 && <MapBoundary><IncidentMapPanel events={events} selectedId={selectedId ?? events[0].id} onSelect={selectIncident} connected={connected} /></MapBoundary>}
+        {events.length > 0 && <MapBoundary><IncidentMapPanel events={events} selectedId={selectedId} onSelect={selectIncident} connected={connected} /></MapBoundary>}
         </div>
       </main>
     </div>

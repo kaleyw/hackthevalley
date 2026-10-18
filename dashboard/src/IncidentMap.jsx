@@ -16,34 +16,64 @@ export class MapBoundary extends Component {
   render() { return this.state.failed ? <p className="map-warning">Map unavailable. Use the location briefing below; alert controls remain available.</p> : this.props.children }
 }
 
-export function NetworkMap({ contexts, selectedId, onSelect }) {
+const DOWNTOWN = [43.6510, -79.3810]
+const STREET_TILES = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png'
+const STREET_ATTRIBUTION = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+const isClosed = (status) => ['resolved', 'dismissed'].includes(status)
+
+function useStreetMapSetting() {
+  const [on, setOn] = useState(() => {
+    try { return localStorage.getItem('streetMap') !== 'off' } catch { return true }
+  })
+  const toggle = () => setOn((v) => {
+    try { localStorage.setItem('streetMap', v ? 'off' : 'on') } catch { /* private mode */ }
+    return !v
+  })
+  return [on, toggle]
+}
+
+export function NetworkMap({ contexts, selectedId, onSelect, monitored = [] }) {
   const container = useRef(null)
   const map = useRef(null)
+  const streets = useRef(null)
   const markers = useRef(null)
+  const stationsLayer = useRef(null)
   const fitted = useRef(null)
   const [fitRequest, setFitRequest] = useState(0)
   const [networkError, setNetworkError] = useState(false)
+  const [streetMap, toggleStreetMap] = useStreetMapSetting()
+  const [streetsOffline, setStreetsOffline] = useState(false)
 
   useEffect(() => {
-    const instance = L.map(container.current, { attributionControl: true }).setView([43.69, -79.40], 11)
+    const instance = L.map(container.current, { attributionControl: true }).setView(DOWNTOWN, 14)
     map.current = instance
+    // Street background when online; tile errors fall back to the local TTC lines alone
+    let loaded = 0
+    // OpenStreetMap's tile policy needs a Referer; send just this site's origin for tiles
+    // (the page itself sends none). Tiles are faded in CSS so the TTC lines stand out.
+    streets.current = L.tileLayer(STREET_TILES, { maxZoom: 19, attribution: STREET_ATTRIBUTION, className: 'street-tiles', referrerPolicy: 'strict-origin' })
+      .on('tileload', () => { loaded += 1; setStreetsOffline(false) })
+      .on('tileerror', () => { if (loaded === 0) setStreetsOffline(true) })
+    stationsLayer.current = L.layerGroup().addTo(instance)
     markers.current = L.layerGroup().addTo(instance)
-    instance.attributionControl.addAttribution('Local TTC geography · see data sources below')
+    instance.attributionControl.addAttribution('TTC geography: City of Toronto')
     let cancelled = false
     Promise.all(['/maps/ttc-lines.geojson', '/maps/ttc-stations.geojson'].map((url) => fetch(url).then((r) => {
       if (!r.ok) throw new Error('Network geography unavailable')
       return r.json()
     }))).then(([lines, stations]) => {
       if (cancelled) return
-      L.geoJSON(lines, { style: (f) => ({ color: f.properties.ROUTE_COLOR ? `#${f.properties.ROUTE_COLOR.replace('#', '')}` : '#64748b', weight: 4 }) }).addTo(instance)
+      L.geoJSON(lines, { style: (f) => ({ color: f.properties.ROUTE_COLOR ? `#${f.properties.ROUTE_COLOR.replace('#', '')}` : '#64748b', weight: 5, opacity: 0.9 }) }).addTo(instance)
       L.geoJSON(stations, {
-        pointToLayer: (_, latlng) => L.circleMarker(latlng, { radius: 3, color: '#334155', fillColor: 'white', fillOpacity: 1, weight: 1 }),
+        pointToLayer: (_, latlng) => L.circleMarker(latlng, { radius: 3.5, color: '#334155', fillColor: 'white', fillOpacity: 1, weight: 1.5 }),
         onEachFeature: (f, layer) => {
           const label = document.createElement('span')
           label.textContent = stationName(f.properties.PT_NAME)
           layer.bindTooltip(label)
         },
       }).addTo(instance)
+      stationsLayer.current.bringToFront?.()
+      markers.current.bringToFront?.()
     }).catch(() => { if (!cancelled) setNetworkError(true) })
     const resize = new ResizeObserver(() => instance.invalidateSize())
     resize.observe(container.current)
@@ -51,9 +81,28 @@ export function NetworkMap({ contexts, selectedId, onSelect }) {
   }, [])
 
   useEffect(() => {
+    if (!map.current || !streets.current) return
+    if (streetMap) streets.current.addTo(map.current)
+    else streets.current.remove()
+  }, [streetMap])
+
+  // Stations we have cameras at: a small blue pin with a permanent name label
+  useEffect(() => {
+    if (!map.current) return
+    stationsLayer.current.clearLayers()
+    for (const station of monitored) {
+      const { lat, lon } = station.coordinates
+      L.circleMarker([lat, lon], { radius: 8, color: '#1d4ed8', weight: 3, fillColor: '#bfdbfe', fillOpacity: 1 })
+        .bindTooltip(stationName(station.station_name), { permanent: true, direction: 'right', offset: [10, 0], className: 'station-label' })
+        .addTo(stationsLayer.current)
+    }
+  }, [monitored])
+
+  useEffect(() => {
     if (!map.current) return
     markers.current.clearLayers()
     const groups = groupIncidents(contexts)
+    let tallest = 0
     for (const group of groups) {
       const stack = document.createElement('div')
       stack.className = 'incident-stack'
@@ -64,7 +113,7 @@ export function NetworkMap({ contexts, selectedId, onSelect }) {
       stack.appendChild(heading)
       for (const context of group.contexts) {
         const event = context.incident
-        const escalated = event.escalation_level > 0 && !['resolved', 'dismissed'].includes(event.status)
+        const escalated = event.escalation_level > 0 && !isClosed(event.status)
         const text = `${escalated ? '⚠ Escalated' : `${symbols[event.status]} ${labels[event.status]}`} #${event.id}`
         const element = document.createElement('button')
         element.type = 'button'
@@ -77,31 +126,43 @@ export function NetworkMap({ contexts, selectedId, onSelect }) {
         stack.appendChild(element)
       }
       const stackHeight = Math.min(180, group.contexts.length * 32 + 40)
+      tallest = Math.max(tallest, stackHeight)
       L.DomEvent.disableScrollPropagation(stack)
       L.DomEvent.disableClickPropagation(stack)
-      L.marker([group.coordinates.lat, group.coordinates.lon], {
-        icon: L.divIcon({ html: stack, className: 'incident-pin-shell', iconSize: [172, stackHeight], iconAnchor: [86, stackHeight / 2] }),
+      const { lat, lon } = group.coordinates
+      const active = group.contexts.some((c) => !isClosed(c.incident.status))
+      // A pin exactly at the station, and the alert box floating above it so the station stays visible
+      L.circleMarker([lat, lon], { radius: 9, color: 'white', weight: 3, fillColor: active ? '#dc2626' : '#64748b', fillOpacity: 1, className: active ? 'alert-pin-pulse' : '' })
+        .addTo(markers.current)
+      L.marker([lat, lon], {
+        icon: L.divIcon({ html: stack, className: 'incident-pin-shell incident-callout', iconSize: [172, stackHeight], iconAnchor: [86, stackHeight + 18] }),
         keyboard: false,
-        zIndexOffset: group.contexts.some((c) => !['resolved', 'dismissed'].includes(c.incident.status)) ? 1000 : 0,
+        zIndexOffset: active ? 1000 : 0,
       }).addTo(markers.current)
     }
     const points = groups.map((g) => [g.coordinates.lat, g.coordinates.lon])
-    const fitKey = `${fitRequest}:${contexts.map((c) => {
+    const fitKey = `${fitRequest}:${monitored.length}:${contexts.map((c) => {
       const p = currentCoordinates(c)
       return `${c.incident.id}:${p?.lat}:${p?.lon}`
     }).sort().join('|')}`
-    if (points.length && fitted.current !== fitKey) {
-      map.current.fitBounds(L.latLngBounds(points), { padding: [105, 100], maxZoom: 14, animate: false })
+    if (fitted.current !== fitKey) {
+      if (points.length) {
+        // Leave room above the pins for the alert boxes
+        map.current.fitBounds(L.latLngBounds(points), { paddingTopLeft: [40, tallest + 50], paddingBottomRight: [40, 40], maxZoom: 15, animate: false })
+      } else if (monitored.length) {
+        map.current.setView([monitored[0].coordinates.lat, monitored[0].coordinates.lon], 14, { animate: false })
+      }
       fitted.current = fitKey
     }
-  }, [contexts, selectedId, onSelect, fitRequest])
+  }, [contexts, selectedId, onSelect, fitRequest, monitored])
 
   const mappedCount = groupIncidents(contexts).reduce((count, group) => count + group.contexts.length, 0)
-  return <div><div className="map-overview-heading"><p className="map-caption">Showing all {mappedCount} located alerts{contexts.length > mappedCount ? ` · ${contexts.length - mappedCount} location unavailable` : ''}. Select a label for details.</p><button type="button" onClick={() => setFitRequest((value) => value + 1)}>Fit all alerts</button></div>
+  return <div><div className="map-overview-heading"><p className="map-caption">{mappedCount ? `Showing ${mappedCount} active alert${mappedCount > 1 ? 's' : ''}` : 'No active alerts'}{contexts.length > mappedCount ? ` · ${contexts.length - mappedCount} location unavailable` : ''}</p><div className="map-actions"><label className="map-check"><input type="checkbox" checked={streetMap} onChange={toggleStreetMap} /> Street map</label><button type="button" onClick={() => setFitRequest((value) => value + 1)}>Re-centre</button></div></div>
     <div ref={container} className="network-map" aria-label="TTC incident location map" />
     {networkError && <p className="map-warning">Geographic layer unavailable. Location briefing remains available.</p>}
-    <p className="map-caption">! New · ✓ Accepted · ◆ On scene · ⚠ Escalated · ✓ Resolved</p>
-    <p className="map-caption">Offline vector map; no external map tiles. <a href="/maps/SOURCES.md" target="_blank" rel="noreferrer">Geographic sources and limitations</a></p>
+    {streetMap && streetsOffline && <p className="map-caption">Street map unavailable (no internet); showing TTC lines only.</p>}
+    <p className="map-caption"><span className="legend-dot legend-camera" /> Camera station · <span className="legend-dot legend-alert" /> Alert · ! New · ✓ Accepted · ◆ On scene · ⚠ Escalated</p>
+    <p className="map-caption"><a href="/maps/SOURCES.md" target="_blank" rel="noreferrer">Map data sources</a></p>
   </div>
 }
 
@@ -142,6 +203,9 @@ export default function IncidentMapPanel({ events, selectedId, onSelect, connect
   const [verified, setVerified] = useState(false)
   const [showConfig, setShowConfig] = useState(false)
   const ids = events.map((e) => e.id).join(',')
+  const [monitored, setMonitored] = useState([])
+  // Only active alerts on the map, plus one picked from the history list
+  const mapContexts = contexts.filter((c) => !isClosed(c.incident.status) || c.incident.id === selectedId)
   const selected = contexts.find((c) => c.incident.id === selectedId)
   const event = events.find((e) => e.id === selectedId)
   const loadRef = useRef(null)
@@ -166,6 +230,12 @@ export default function IncidentMapPanel({ events, selectedId, onSelect, connect
   }, [ids])
 
   useEffect(() => { fetch('/maps/ttc-stations.geojson').then((r) => r.json()).then((d) => setStations(d.features)).catch(() => {}) }, [])
+  useEffect(() => {
+    const load = () => fetch('/api/maps/monitored').then((r) => r.json()).then(setMonitored).catch(() => {})
+    load()
+    const timer = setInterval(load, 15000)
+    return () => clearInterval(timer)
+  }, [])
   const choose = (id) => { setLink(null); setNotice(''); setError(''); onSelect(id) }
 
   const command = async (path, method, body) => {
@@ -189,8 +259,8 @@ export default function IncidentMapPanel({ events, selectedId, onSelect, connect
 
   return <aside className="incident-map-panel" aria-label="Incident map panel">
     <div className="map-panel-heading"><div><p className="map-eyebrow">TTC LOCATION</p><h2>Incident map</h2></div><span className={online && connected ? 'map-online' : 'map-warning'}>{online && connected ? '● Connected' : '○ Reconnecting'}</span></div>
-    <label>Incident details — all located alerts stay on the map<select aria-label="Selected map incident" value={selectedId ?? ''} onChange={(e) => choose(Number(e.target.value))}>{events.map((e) => <option key={e.id} value={e.id}>#{e.id} · {e.location} · {labels[e.status]}{e.escalation_level > 0 ? ' · Escalated' : ''}</option>)}</select></label>
-    <MapBoundary><NetworkMap contexts={contexts} selectedId={selectedId} onSelect={choose} /></MapBoundary>
+    <label>Alert details<select aria-label="Selected map incident" value={selectedId ?? ''} onChange={(e) => choose(Number(e.target.value))}><option value="" disabled>Select an alert</option>{events.map((e) => <option key={e.id} value={e.id}>#{e.id} · {e.location} · {labels[e.status]}{e.escalation_level > 0 ? ' · Escalated' : ''}</option>)}</select></label>
+    <MapBoundary><NetworkMap contexts={mapContexts} selectedId={selectedId} onSelect={choose} monitored={monitored} /></MapBoundary>
     <LocationDetails context={selected} connected={online && connected} />
     {selected && <>
       <div className="map-actions"><button onClick={async () => setNotice(await copyText(selected.briefing) ? 'Location briefing copied' : 'Copy the briefing from the text box below')}>Copy location briefing</button></div>

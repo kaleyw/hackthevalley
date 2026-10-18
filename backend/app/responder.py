@@ -26,7 +26,7 @@ async def privacy_headers(request: Request, call_next):
     response.headers['Cache-Control'] = 'no-store'
     response.headers['Referrer-Policy'] = 'no-referrer'
     response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"
+    response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https://tile.openstreetmap.org; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'"
     return response
 
 

@@ -27,7 +27,17 @@
 .incident-stack { display: grid; gap: 4px; padding: 6px; max-height: 180px; overflow-y: auto; border-radius: 9px; background: #fffffff5; box-shadow: 0 2px 8px #0003; }
 .incident-stack .incident-pin { display: block; width: 100%; cursor: pointer; text-align: left; box-shadow: none; }
 .incident-stack .incident-pin:focus-visible { outline: 3px solid #0f172a; }
-.incident-stack-heading { color: #334155; font: 600 11px/20px system-ui; white-space: nowrap; }
+.incident-stack-heading { color: #0f172a; font: 700 12px/20px system-ui; white-space: nowrap; }
+.incident-callout .incident-stack { position: relative; overflow: visible; }
+.incident-callout .incident-stack::after { content: ''; position: absolute; left: 50%; bottom: -9px; margin-left: -9px; border: 9px solid transparent; border-bottom: 0; border-top-color: #fffffff5; filter: drop-shadow(0 2px 1px #0002); }
+.street-tiles { filter: grayscale(.8) brightness(1.06) contrast(.88); }
+.station-label { background: #1d4ed8; color: white; border: none; border-radius: 6px; font: 700 12px system-ui; padding: 3px 7px; box-shadow: 0 1px 4px #0003; }
+.station-label::before { border-right-color: #1d4ed8 !important; }
+.alert-pin-pulse { animation: alert-pulse 1.4s ease-in-out infinite; }
+@keyframes alert-pulse { 50% { stroke-width: 9; stroke-opacity: .45; } }
+.legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; vertical-align: -1px; margin-right: 3px; }
+.legend-camera { background: #bfdbfe; border: 2px solid #1d4ed8; }
+.legend-alert { background: #dc2626; border: 2px solid white; box-shadow: 0 0 0 1px #dc2626; }
 .map-overview-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .map-overview-heading button { flex-shrink: 0; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 8px; background: white; color: #334155; cursor: pointer; font-size: 12px; }
 .responder-view { max-width: 850px; margin: 0 auto; padding: 28px 20px; display: grid; gap: 18px; }

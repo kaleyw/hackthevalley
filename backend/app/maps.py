@@ -173,6 +173,20 @@ def context(event, restricted=False):
     return result
 
 
+@router.get('/maps/monitored')
+def monitored_stations():
+    """Stations with a camera, so the map can show where we're watching even with no alerts."""
+    camera_ids = [c['id'] for c in db.list_cameras()] or ['cam-1']
+    stations = {}
+    for camera_id in camera_ids:
+        location = camera_location(camera_id)
+        if location and location.get('coordinates'):
+            entry = stations.setdefault(location.get('station_name'), {
+                'station_name': location.get('station_name'), 'coordinates': location['coordinates'], 'cameras': []})
+            entry['cameras'].append(camera_id)
+    return list(stations.values())
+
+
 @router.get('/maps/events/{event_id}')
 def event_map(event_id: int):
     return context(require_event(event_id))

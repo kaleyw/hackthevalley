@@ -13,16 +13,17 @@ Credit: City of Toronto / Toronto Transit Commission.
   PT_ID, PT_NAME. Route fields: ROUTE_ID, ROUTE_SHORT_NAME, ROUTE_LONG_NAME,
   ROUTE_COLOR. No station/line geometry was invented or simplified.
 
-The snapshot contains 73 station points and five route features, as supplied by
-those layers on retrieval. It is not a statement of current service, closures,
+The snapshot contains 68 station points and five route features. The five Line 3
+Scarborough RT stations (McCowan, Scarborough Centre, Midland, Ellesmere, Lawrence East)
+were removed because the line closed in 2023 and has no route geometry in the data. It is not a statement of current service, closures,
 completeness, platform layouts, entrances, accessibility, or emergency access.
 Official station points are treated as **approximate station locations**, not
 surveyed platform or entrance positions. Older/renamed station labels may remain.
 
-There is no remote tile dependency. Leaflet renders the locally stored vectors
-on a plain geographic canvas. The textual briefing works even if these files fail.
+## Street map background
 
-**DEMO-T1 is synthetic:** movement is interpolated on straight segments between
-the official Union, King, Queen, and Dundas station points, not surveyed tracks.
-Its timing, direction, car identifier, and position are not live TTC telemetry.
-The provider can be replaced; no compatible live subway feed is configured.
+When online, the map shows OpenStreetMap's standard tiles (faded) behind the TTC lines
+(© OpenStreetMap contributors, used under the OSM tile usage policy for light use).
+Loading tiles tells OpenStreetMap which area of the map is being viewed and this
+site's origin, not anything about an alert. Without internet the map falls back to the locally stored TTC lines and
+stations on a plain canvas, and the textual briefing works even if all map data fails.
