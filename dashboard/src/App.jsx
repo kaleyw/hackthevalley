@@ -54,7 +54,6 @@ const SOUNDS = {
   escalated: [[1175, 0.12], [1175, 0.12], [1175, 0.12], [1568, 0.4]],  // urgent
   cameraOffline: [[440, 0.4], [330, 0.6]],                         // low warning
 }
-const REPEAT_DING_MS = 5000  // keep dinging while any alert is waiting for someone to accept it
 
 // Browsers only allow sound after the user has clicked the page, so sound starts "off"
 // until the first click anywhere.
@@ -103,8 +102,8 @@ function useAlertSound() {
   return { enabled, muted, setMuted, play }
 }
 
-// Ding when something needs security's attention: a new alert (repeating until accepted),
-// an alert escalating to backup, or a camera going offline.
+// Ding once when something needs security's attention: a new alert, an alert escalating
+// to backup, or a camera going offline.
 function useSecurityDings(events, cameras, play) {
   const seen = useRef(null)
 
@@ -120,13 +119,6 @@ function useSecurityDings(events, cameras, play) {
     if (cameras.some((c) => !c.online && prev.online[c.id] !== false)) play(SOUNDS.cameraOffline)
   }, [events, cameras, play])
 
-  const waiting = events.filter((e) => e.status === 'open')
-  const anyEscalated = waiting.some((e) => e.escalation_level > 0)
-  useEffect(() => {
-    if (waiting.length === 0) return
-    const id = setInterval(() => play(anyEscalated ? SOUNDS.escalated : SOUNDS.newAlert), REPEAT_DING_MS)
-    return () => clearInterval(id)
-  }, [waiting.length, anyEscalated, play])
 }
 
 function duration(seconds) {

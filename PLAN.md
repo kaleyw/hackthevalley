@@ -88,7 +88,7 @@
 - [x] Location only, never a description of the person or a guess at the cause
 - [x] Silence button on the dashboard for false alarms
 - [x] Several people down at one location announced together; each case getting help announced separately
-- [x] Dashboard dings for security: new alert (repeats every 5 s until accepted), escalation, camera offline
+- [x] Dashboard dings for security: new alert, escalation, camera offline
 - [x] Person gets up after the alert: speaker tells bystanders, alert stays open for staff; down again is re-announced
 - [ ] Set CAMERA_LOCATION in .env to the spoken demo location
 - [ ] Demo: person lies down → speaker announces → "bystander" walks over and stays 10 s → speaker thanks them
