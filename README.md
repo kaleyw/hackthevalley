@@ -1,5 +1,8 @@
 # Hack the Valley: Fall Alerts
 
+For the map feature's behavior, architecture, and live-alert walkthrough, see
+[TTC map overview](docs/TTC_MAP_OVERVIEW.md).
+
 TTC incident maps and restricted responder sharing: see [the map demo guide](docs/TTC_MAP_DEMO.md)
 for setup, camera location configuration, simulated train controls, security boundaries,
 and verification. Existing escalation remains log/dashboard-only; no emergency calls
