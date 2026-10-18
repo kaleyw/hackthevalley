@@ -7,7 +7,7 @@ Credit: City of Toronto / Toronto Transit Commission.
   https://gis.toronto.ca/arcgis/rest/services/cot_geospatial7/MapServer/8
 - Lines: City of Toronto GIS, `cot_geospatial7/MapServer/11` (TTC Subway Route).
   https://gis.toronto.ca/arcgis/rest/services/cot_geospatial7/MapServer/11
-- Licence: https://open.toronto.ca/open-data-license/
+- Licence: https://open.toronto.ca/open-data-licence/
 - Retrieved 2026-10-17, using `query?where=1%3D1&outFields=...&outSR=4326&f=json`.
   ArcGIS points and paths were converted to WGS84 GeoJSON. Station fields retained:
   PT_ID, PT_NAME. Route fields: ROUTE_ID, ROUTE_SHORT_NAME, ROUTE_LONG_NAME,

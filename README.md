@@ -1,116 +1,169 @@
-# Hack the Valley: Fall Alerts
+# HEADS-UP
 
-TTC incident map and restricted responder links: see [docs/MAP.md](docs/MAP.md). Alerts
-appear at their camera's station (Union Station by default). No emergency calls or outbound
-map delivery are configured.
+**Getting help to people who can't ask for it.**
 
-A fixed security camera detects when someone collapses or falls and doesn't get up, then starts a welfare check that a responder has to acknowledge. Built for Project KAZE: helping people who can no longer ask for help themselves.
+HEADS-UP turns an existing security camera into a safety net. When someone collapses or falls in a transit station and doesn't get up, it asks bystanders nearby to check on them, alerts security staff, and tracks the alert until help has actually reached the person.
 
+Built at Hack the Valley for the **Project KAZE** challenge: *How might we help people stay safe and get assistance when they are no longer in a position to ask for help themselves?*
+
+---
+
+## The problem
+
+A drink can be spiked. Someone can become severely intoxicated, faint, or lose consciousness. In that moment they can't call, text, or press an SOS button, and in a busy station it's easy for everyone to assume someone else has noticed.
+
+The dangerous part is the **gap** between the moment a person can no longer help themselves and the moment someone realizes they need help. HEADS-UP is built to close that gap, and to prove it closed.
+
+## How it works
+
+```mermaid
+flowchart LR
+    A[Security camera] --> B[Pose detection<br/>YOLO Pose + ByteTrack]
+    B --> C{Down and<br/>not getting up?}
+    C -- yes --> D[Speaker asks<br/>bystanders to help]
+    C -- yes --> E[Security dashboard<br/>alert + map]
+    E --> F[Responder accepts<br/>and arrives]
+    B -- someone stays<br/>with the person --> G[Help confirmed<br/>on camera]
+    F --> H[Resolved with<br/>an outcome]
+    G --> H
 ```
-camera / video ──► vision/ (YOLO Pose + ByteTrack + fall detector) ──POST /events──► backend/ (FastAPI + SQLite)
-                                                                                         │ WebSocket
-                                                                                         ▼
-                                                                          dashboard/ (React responder view)
-```
 
-## Stack
+1. **Detect.** A pose model tracks each person's body. If someone ends up lying down and stays down (3 seconds after a fast fall, 12 seconds after a slow collapse), an alert fires. Getting back up cancels it.
+2. **Ask the people nearby.** A speaker near the camera says *"Attention please. Someone near Union Station may need help. If you are nearby, please check on them."* Bystanders are usually seconds away; staff may be minutes away.
+3. **Alert security.** The response desk dashboard dings and shows the alert with *why* it fired, where it is on the TTC map, and a live camera view.
+4. **Confirm help arrived.** The alert stays open until a responder taps **I'm here**, or the camera sees someone stay with the person for 10 seconds. Then the speaker says *"Help is here, there's no need to worry."*
+5. **Escalate if nobody responds.** If no one accepts the alert within 60 seconds, a backup responder is notified.
+
+## Features
+
+- **Collapse detection that ignores everyday movement:** sitting, bending, kneeling, or someone walking past don't trigger it.
+- **Explainable alerts:** every alert says why it fired, e.g. *"Went down slowly, like slumping or sliding down · Lying down for 12s · Very little movement in the last 5s."*
+- **Bystander announcements** naming the location only. Several people down at one spot are announced together, and the speaker gives an update when each one gets help or gets back up.
+- **Closed-loop response:** went down → alert → accepted → help reached them → resolved, with a timeline on every alert.
+- **The key stat, measured live:** % of alerts where help actually reached the person, and median time from going down to help arriving.
+- **TTC incident map** showing alerts at their station, plus read-only, expiring links to share an alert's location with a responder.
+- **Reliability built in:** automatic backup escalation, a camera-offline warning, alert sounds, and handling for a person who gets up and goes down again.
+
+## Safety, dignity, privacy and autonomy
+
+- **Location, never identity.** Announcements and alerts never describe the person, and responder links share only location and status.
+- **No guessing why.** It says "someone may need help," never "possibly drugged" or "intoxicated." Its job is to get help there, not to diagnose.
+- **A welfare check, not enforcement.** The response is a person checking in, never a penalty, including for someone simply resting.
+- **Humans stay in charge.** It never calls 911 by itself; escalating to emergency services is a responder's decision.
+- **Video stays local.** Camera frames are processed on the device; only alert details are sent to the dashboard.
+
+## Tech stack
 
 | Part | Tech |
 |---|---|
-| Video ingestion | Python + OpenCV |
-| Pose estimation | Ultralytics YOLO Pose (`yolo11n-pose.pt`) |
-| Tracking | ByteTrack (built into Ultralytics, settings in `vision/bytetrack.yaml`) |
-| Collapse detection | Temporal rules + state machine over keypoints (`vision/detector.py`): fast fall (high urgency) or slow collapse (medium), each alert with plain-language reasons |
-| Backend | FastAPI + SQLite, WebSocket for live updates |
-| Dashboard | React + Vite + Tailwind CSS |
+| Vision | Python, OpenCV, [Ultralytics YOLO Pose](https://docs.ultralytics.com/tasks/pose/), ByteTrack |
+| Detection | Temporal rules and a state machine over body keypoints (`vision/detector.py`) |
+| Backend | FastAPI, SQLite, WebSockets |
+| Dashboard | React, Vite, Tailwind CSS, Leaflet |
+| Speaker | macOS text-to-speech (`say`), through laptop speakers or a Bluetooth speaker |
+| Map data | City of Toronto open data (TTC lines and stations), OpenStreetMap |
 
-## Quick start
+## Getting started
 
-You need **Python 3.12** (3.14 is too new for some ML packages) and **Node 20+**.
+You need **Python 3.12** and **Node 20+**. The camera runs on a webcam; on a Mac with Apple Silicon it uses the GPU.
 
-**1. One-time setup**
+### 1. Install
+
 ```bash
+git clone https://github.com/kaleyw/hackthevalley.git
+cd hackthevalley
 python3.12 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
+.venv/bin/pip install -r requirements.txt
 npm install --prefix dashboard
+cp .env.example .env
 ```
 
-**2. Run it** (three terminals, all from the repo root, with `source .venv/bin/activate` in the Python ones)
+Open `.env` and set `CAMERA_LOCATION` to the place the speaker should name, e.g. `Union Station`.
+
+### 2. Run
+
+Use three terminals, all from the project folder:
+
 ```bash
-uvicorn backend.app.main:app --reload            # backend on :8000, API docs at /docs
-npm run dev --prefix dashboard                   # dashboard on http://localhost:5173
-python vision/run.py                             # webcam, or: --source data/tune/clip.mp4
+.venv/bin/uvicorn backend.app.main:app --reload
 ```
 
-Press `q` in the preview window to stop the vision script. On a Mac with Apple Silicon it runs on the GPU (`--device mps`). Use `--device cpu` if that errors, or `--device 0` on an NVIDIA GPU.
-
-**Live camera on the dashboard:** `vision/run.py` also serves its annotated frames on `127.0.0.1:8090` (`STREAM_PORT` in `.env`), and the dashboard's camera panel shows them. It shows the camera picture with the pose skeleton drawn on top; use `--stream-port 0` to turn the stream off. If port 8000 is taken, run the backend on another port and start the dashboard with `BACKEND_PORT` set (for example `BACKEND_PORT=8001 npm run dev --prefix dashboard`) with `BACKEND_URL` in `.env` pointing at the same port. On Windows the camera script uses the DirectShow driver, which opens webcams more reliably.
-
-**Test the dashboard without a camera:**
 ```bash
-curl -X POST localhost:8000/events -H 'Content-Type: application/json' \
-  -d '{"camera_id":"cam-1","location":"Union Station","type":"person_down","urgency":"medium","summary":"Person down and not getting up","reasons":["Went down slowly","Lying down for 12s"],"track_id":1,"detected_at":"2026-10-17T18:00:00Z"}'
+npm run dev --prefix dashboard
 ```
 
-## Repo layout
-
-```
-vision/      run.py (main loop), detector.py (collapse logic), help_watch.py (camera-confirmed help),
-             config.py (all thresholds), bytetrack.yaml
-backend/     app/main.py (API + WebSocket), app/db.py (SQLite), app/speaker.py (announcements)
-dashboard/   src/App.jsx (responder dashboard)
-data/        test videos (not committed; see data/README.md)
-PLAN.md      master checklist
+```bash
+.venv/bin/python vision/run.py --debug
 ```
 
-## Event format (vision → backend)
+Open **http://localhost:5173** and click the banner once to turn on alert sounds. The first time, macOS asks to let your terminal use the camera.
 
-`POST /events`
-```json
-{
-  "camera_id": "cam-1",
-  "location": "Union Station",
-  "type": "possible_fall",
-  "urgency": "high",
-  "summary": "Possible fall, person not getting up",
-  "reasons": [
-    "Went down fast: hips dropped 1.1 body-lengths in 0.6s",
-    "Lying down for 3s (torso 85° from upright)",
-    "Very little movement in the last 2s"
-  ],
-  "track_id": 3,
-  "detected_at": "2026-10-17T18:00:00+00:00",
-  "went_down_at": "2026-10-17T17:59:57+00:00",
-  "metrics": {"down_seconds": 3.0, "torso_angle_deg": 85, "drop_torsos": 1.1, "movement_torsos_per_sec": 0.02, "hidden_fraction": 0.0}
-}
+- Press `q` in the video window (or `Ctrl + C`) to stop the camera.
+- Add `--device cpu` if the GPU (`mps`) gives an error, or `--source path/to/video.mp4` to use a video instead of the webcam.
+- Make sure your computer isn't muted, or you won't hear the announcements.
+
+### 3. Optional: responder links
+
+To share an alert's location with a responder, set `MAP_OPERATOR_KEY` in `.env` and run the read-only responder page next to the others. See [docs/MAP.md](docs/MAP.md).
+
+## Try it
+
+1. Stand in front of the camera with your whole body in view, then **slowly lie down on a mat** and stay still.
+2. The video shows a countdown (`DOWN 3s/12s`). At 12 seconds the dashboard dings and the speaker asks bystanders for help.
+3. Click **Accept, I'm going** on the dashboard.
+4. Have a teammate kneel beside you for 10 seconds (*"Someone is with the person now."*), or click **I'm here** (*"Help is here…"*).
+5. Click **Resolve** and choose what happened. The stats update.
+
+Please don't perform real falls when testing. Slow lie-downs are safe and trigger the same alert.
+
+## Configuration
+
+Settings live in `.env` (see `.env.example`); detection thresholds are in `vision/config.py`.
+
+| Setting | What it does | Default |
+|---|---|---|
+| `CAMERA_LOCATION` | Location the speaker and dashboard name | `Union Station` |
+| `CAMERA_STATION` | TTC station cameras are shown at on the map | `Union` |
+| `SPEAKER_ENABLED` | Spoken announcements on (`1`) or off (`0`) | `1` |
+| `SPEAKER_REPEAT_SECONDS` | How often the announcement repeats until help arrives | `20` |
+| `ACK_TIMEOUT_SECONDS` | Seconds before an unaccepted alert notifies a backup responder | `60` |
+| `STREAM_PORT` | Local port for the dashboard's live camera view (`0` = off) | `8090` |
+| `MAP_OPERATOR_KEY` | Secret for responder links and changing camera locations | *(empty)* |
+
+## Project structure
+
 ```
-`type` is `possible_fall` (fast fall, high urgency, alerts after 3 s down) or `person_down` (slow collapse, medium urgency, alerts after 12 s down). `went_down_at` is when the person went down, so we can measure the whole gap until help arrives.
-
-## Confirming help actually reaches the person
-
-Every alert is tracked until someone is confirmed with the person:
-
-```
-went down → alert (open) → responder accepts (acknowledged) → responder arrives (on_scene) → resolved + outcome
-                 │ nobody accepts in 60 s
-                 ▼
-           backup responder notified
+vision/      Camera: pose tracking, collapse detection, help confirmation, live stream
+backend/     API, alert lifecycle, escalation, speaker, TTC map and responder links
+dashboard/   The HEADS-UP response desk (React)
+docs/        How it works in detail, map setup
+data/        Test videos and run logs (not committed)
 ```
 
-- **Responder confirms:** `POST /events/{id}/acknowledge`, then `/arrive` ("I'm here"), then `/resolve` with an `outcome`: `person_ok`, `helped_on_site`, `medical_help_called` or `person_gone`. Resolving requires arriving first. `/dismiss` (with a `reason`) is for false alarms.
-- **Camera confirms:** after an alert, if another person stays next to the person for 10 s, the vision script calls `POST /events/{id}/help-detected`. Someone walking past (gone for 1.5+ s) restarts the count.
-- **Watchdog:** if nobody accepts an alert within `ACK_TIMEOUT_SECONDS` (default 60) and the camera doesn't already see someone with the person, a backup responder is notified. Once someone accepts, it doesn't auto-escalate: they know where to go. Responders can still click Escalate.
-- **Speaker for bystanders:** when an alert fires, the backend chimes and says *"Attention please. Someone near [CAMERA_LOCATION] may need help. If you are nearby, please check on them. Staff have been notified."* It repeats every 20 s (saying "Staff are on the way" once accepted), says *"Thank you. Help has arrived."* when someone is with them, then stops. Several people down at the same location are announced together ("2 people near ..."), and each one getting help is announced separately ("Thank you. Help has arrived near ... One more person near ... still needs help."). If the person gets back up after the alert, the camera calls `POST /events/{id}/got-up`: the speaker says *"Update: the person near ... is now back on their feet. Staff will still check on them."* and stops asking bystanders, while the alert stays open for staff. If they go down again, it's announced again right away. It names the location only, never describes the person. Uses the Mac's built-in `say`, so it plays through the Mac's current sound output (laptop speakers or a Bluetooth speaker like a JBL). Responders can silence it from the dashboard (`POST /events/{id}/silence`). Turn it off with `SPEAKER_ENABLED=0`.
-- **Dashboard dings for security:** a ding-dong for a new alert; an urgent ding when an alert escalates to backup; a low warning tone when a camera goes offline. Browsers only allow sound after a click, so the dashboard shows a "click to turn on alert sounds" banner until you do. There's a mute button in the header.
-- **Camera heartbeat:** the vision script calls `POST /cameras/{id}/heartbeat` every 2 s; the dashboard warns when a camera goes quiet.
-- **Stats:** `GET /stats` returns % of alerts where help reached the person, median time from going down to help, camera-verified count and escalations.
+How detection, the alert lifecycle and the API work in detail: [docs/HOW_IT_WORKS.md](docs/HOW_IT_WORKS.md).
 
-A second alert for the same person on the same camera within 2 minutes is suppressed.
+## Tests
 
-## Notes
+```bash
+.venv/bin/pip install -r requirements-test.txt
+.venv/bin/python -m unittest backend.test_maps -v
+node --test dashboard/src/mapLayout.test.js
+```
 
-- Detection thresholds in `vision/config.py` are prototype values to tune on our clips. They are not medically validated.
-- The system never calls emergency services itself; escalation is a human decision on the dashboard.
-- Test footage: [UR Fall Detection Dataset](http://fenix.ur.edu.pl/mkepski/ds/uf.html) (non-commercial academic use, attribution required).
+## Limitations
+
+- Detection thresholds are prototype values tuned on our own tests; they are **not medically validated**.
+- It's built for one fixed camera with the person's whole body in view. Very high or overhead angles, crowds, and someone slumped while still seated are harder.
+- The speaker uses macOS text-to-speech; on other systems announcements are only logged.
+- It doesn't contact emergency services or send messages automatically.
+- Places without cameras (dorm rooms, private spaces) aren't covered. The alert pipeline accepts alerts from any source, so phone or wearable triggers could plug into it in the future.
+
+## Team
+
+Built at Hack the Valley by [@kaleyw](https://github.com/kaleyw), [@jnoh24](https://github.com/jnoh24), [@Harini-UW](https://github.com/Harini-UW) and [@gakharnaysha](https://github.com/gakharnaysha).
+
+## Credits
+
+- Pose detection and tracking: [Ultralytics YOLO](https://github.com/ultralytics/ultralytics) (AGPL-3.0) with ByteTrack
+- TTC lines and stations: City of Toronto, [Open Government Licence – Toronto](https://open.toronto.ca/open-data-licence/) (details in [dashboard/public/maps/SOURCES.md](dashboard/public/maps/SOURCES.md))
+- Street map: © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors
