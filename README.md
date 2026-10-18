@@ -46,6 +46,8 @@ python vision/run.py                             # webcam, or: --source data/tun
 
 Press `q` in the preview window to stop the vision script. On a Mac with Apple Silicon it runs on the GPU (`--device mps`). Use `--device cpu` if that errors, or `--device 0` on an NVIDIA GPU.
 
+**Live camera on the dashboard:** `vision/run.py` also serves its annotated frames on `127.0.0.1:8090` (`STREAM_PORT` in `.env`), and the dashboard's camera panel shows them. By default the picture is blurred with only the pose skeleton sharp, for privacy; use `--stream-view video` for the raw picture or `--stream-port 0` to turn the stream off. If port 8000 is taken, run the backend on another port and start the dashboard with `BACKEND_PORT` set (for example `BACKEND_PORT=8001 npm run dev --prefix dashboard`) with `BACKEND_URL` in `.env` pointing at the same port. On Windows the camera script uses the DirectShow driver, which opens webcams more reliably.
+
 **Test the dashboard without a camera:**
 ```bash
 curl -X POST localhost:8000/events -H 'Content-Type: application/json' \

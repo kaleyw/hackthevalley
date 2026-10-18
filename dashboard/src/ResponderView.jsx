@@ -25,8 +25,11 @@ export default function ResponderView({ eventId }) {
     return () => { closed = true; clearInterval(timer) }
   }, [eventId, token])
   return <main className="responder-view">
-    <p className="map-eyebrow">RESTRICTED · READ-ONLY · RESPONDER VIEW</p>
-    <h1>Incident #{eventId}</h1>
+    <div>
+      <div className="eyebrow">Restricted · read-only · responder view</div>
+      <div className="brand">HEADS-UP</div>
+    </div>
+    <h1 className="responder-title">Incident #{eventId}</h1>
     <p className="map-notice">This page does not place calls or contact emergency services. Opening this link does not tell the control room you've seen it.</p>
     {error && <p role="alert" className="map-warning">{error}</p>}
     {context ? <>
@@ -34,7 +37,7 @@ export default function ResponderView({ eventId }) {
       <LocationDetails context={context} connected={connected} />
       <div className="map-actions"><button onClick={async () => setNotice(await copyText(context.briefing) ? 'Briefing copied' : 'Select the briefing below to copy it')}>Copy concise location briefing</button></div>
       <textarea readOnly aria-label="Responder location briefing" value={context.briefing} rows={5} />
-      {notice && <p role="status">{notice}</p>}
-    </> : !error && <p>Checking restricted access…</p>}
+      {notice && <p role="status" className="map-notice">{notice}</p>}
+    </> : !error && <p className="map-caption">Checking restricted access…</p>}
   </main>
 }

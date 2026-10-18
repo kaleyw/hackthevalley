@@ -57,3 +57,6 @@ SAME_PERSON_IOU = 0.6  # a box overlapping the person this much is a duplicate d
 HELP_KEEP_LAST_POSITION_SECONDS = 10.0  # helpers often block the camera's view of the person
 
 HEARTBEAT_SECONDS = 2.0  # how often the camera tells the backend it's alive
+
+# Live preview shown on the dashboard's camera panel (local only; 0 turns it off)
+STREAM_PORT = int(os.getenv("STREAM_PORT", 8090))

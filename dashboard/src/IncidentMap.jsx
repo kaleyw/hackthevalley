@@ -1,12 +1,10 @@
 import { Component, useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import 'leaflet/dist/leaflet.css'
-import './map.css'
 import { currentCoordinates, detectionCoordinates, effectiveLocation, groupIncidents, stationName } from './mapLayout.js'
 
 const symbols = { open: '!', acknowledged: '✓', on_scene: '◆', resolved: '✓', dismissed: '×' }
 const labels = { open: 'New', acknowledged: 'Accepted', on_scene: 'On scene', resolved: 'Resolved', dismissed: 'Dismissed' }
-const colors = { open: '#dc2626', acknowledged: '#b45309', on_scene: '#2563eb', resolved: '#15803d', dismissed: '#64748b' }
 const when = (value) => value ? new Date(value).toLocaleString() : 'Unavailable'
 const coordinateText = (c) => !c ? 'Location unavailable' : `${c.lat.toFixed(5)}, ${c.lon.toFixed(5)} · ${c.precision === 'station_centroid' ? 'approximate station location' : c.precision.replaceAll('_', ' ')}`
 
@@ -65,9 +63,16 @@ export function NetworkMap({ contexts, selectedId, onSelect, monitored = [] }) {
       return r.json()
     }))).then(([lines, stations]) => {
       if (cancelled) return
-      L.geoJSON(lines, { filter: (f) => !HIDDEN_LINES.includes(String(f.properties.ROUTE_SHORT_NAME)), style: (f) => ({ color: f.properties.ROUTE_COLOR ? `#${f.properties.ROUTE_COLOR.replace('#', '')}` : '#64748b', weight: 5, opacity: 0.9 }) }).addTo(instance)
+      L.geoJSON(lines, {
+        filter: (f) => !HIDDEN_LINES.includes(String(f.properties.ROUTE_SHORT_NAME)),
+        // Line 1 (the yellow U) keeps its TTC colour; the other lines stay charcoal
+        style: (f) => (String(f.properties.ROUTE_SHORT_NAME) === '1'
+          ? { color: '#FFC524', weight: 6, opacity: 1 }
+          : { color: '#1a1a1a', weight: 4, opacity: 0.55 }),
+        onEachFeature: (f, layer) => { if (f.properties.ROUTE_SHORT_NAME) layer.bindTooltip(`Line ${f.properties.ROUTE_SHORT_NAME}`, { sticky: true }) },
+      }).addTo(instance)
       L.geoJSON(stations, {
-        pointToLayer: (_, latlng) => L.circleMarker(latlng, { radius: 3.5, color: '#334155', fillColor: 'white', fillOpacity: 1, weight: 1.5 }),
+        pointToLayer: (_, latlng) => L.circleMarker(latlng, { radius: 3.5, color: '#1a1a1a', fillColor: '#fafafa', fillOpacity: 1, weight: 1.5 }),
         onEachFeature: (f, layer) => {
           const label = document.createElement('span')
           label.textContent = stationName(f.properties.PT_NAME)
@@ -94,7 +99,7 @@ export function NetworkMap({ contexts, selectedId, onSelect, monitored = [] }) {
     stationsLayer.current.clearLayers()
     for (const station of monitored) {
       const { lat, lon } = station.coordinates
-      L.circleMarker([lat, lon], { radius: 8, color: '#1d4ed8', weight: 3, fillColor: '#bfdbfe', fillOpacity: 1 })
+      L.circleMarker([lat, lon], { radius: 8, color: '#fafafa', weight: 3, fillColor: '#1a1a1a', fillOpacity: 1 })
         .bindTooltip(stationName(station.station_name), { permanent: true, direction: 'right', offset: [10, 0], className: 'station-label' })
         .addTo(stationsLayer.current)
     }
@@ -119,8 +124,7 @@ export function NetworkMap({ contexts, selectedId, onSelect, monitored = [] }) {
         const text = `${escalated ? '⚠ Escalated' : `${symbols[event.status]} ${labels[event.status]}`} #${event.id}`
         const element = document.createElement('button')
         element.type = 'button'
-        element.className = `incident-pin ${event.id === selectedId ? 'incident-pin-selected' : ''}`
-        element.style.backgroundColor = escalated ? '#7e22ce' : colors[event.status]
+        element.className = `incident-pin incident-pin--${escalated ? 'escalated' : event.status} ${event.id === selectedId ? 'incident-pin-selected' : ''}`
         element.textContent = text
         element.setAttribute('aria-label', `Incident #${event.id} at ${place}: ${escalated ? 'Escalated' : labels[event.status]}`)
         element.setAttribute('aria-pressed', String(event.id === selectedId))
@@ -134,7 +138,7 @@ export function NetworkMap({ contexts, selectedId, onSelect, monitored = [] }) {
       const { lat, lon } = group.coordinates
       const active = group.contexts.some((c) => !isClosed(c.incident.status))
       // A pin exactly at the station, and the alert box floating above it so the station stays visible
-      L.circleMarker([lat, lon], { radius: 9, color: 'white', weight: 3, fillColor: active ? '#dc2626' : '#64748b', fillOpacity: 1, className: active ? 'alert-pin-pulse' : '' })
+      L.circleMarker([lat, lon], { radius: 9, color: '#fafafa', weight: 3, fillColor: active ? '#da251d' : '#1a1a1a', fillOpacity: active ? 1 : 0.4, className: active ? 'alert-pin-pulse' : '' })
         .addTo(markers.current)
       L.marker([lat, lon], {
         icon: L.divIcon({ html: stack, className: 'incident-pin-shell incident-callout', iconSize: [172, stackHeight], iconAnchor: [86, stackHeight + 18] }),
@@ -179,7 +183,6 @@ export function LocationDetails({ context, connected = true }) {
       <dt>Station / platform</dt><dd>{stationName(location?.station_name) ?? 'Location unavailable'}{location?.platform_label ? ` · ${location.platform_label}` : ''}</dd>
       <dt>Line / direction</dt><dd>{[location?.line, location?.direction].filter(Boolean).join(' · ') || 'Unavailable'}</dd>
       <dt>Location</dt><dd>{coordinateText(location?.coordinates ?? detectionCoordinates(context))}</dd>
-      <dt>Verified meeting point</dt><dd>{location?.meeting_point?.label ?? 'Not configured'}{location?.meeting_point?.coordinates && ` · ${coordinateText(location.meeting_point.coordinates)}`}</dd>
     </dl>
     <p className="map-caption">Last updated {when(context.last_updated_at)}</p>
   </div>
@@ -259,36 +262,40 @@ export default function IncidentMapPanel({ events, selectedId, onSelect, connect
     if (result) setLink(result.url)
   }
 
-  return <aside className="incident-map-panel" aria-label="Incident map panel">
-    <div className="map-panel-heading"><div><p className="map-eyebrow">TTC LOCATION</p><h2>Incident map</h2></div><span className={online && connected ? 'map-online' : 'map-warning'}>{online && connected ? '● Connected' : '○ Reconnecting'}</span></div>
-    <label>Alert details<select aria-label="Selected map incident" value={selectedId ?? ''} onChange={(e) => choose(Number(e.target.value))}><option value="" disabled>Select an alert</option>{events.map((e) => <option key={e.id} value={e.id}>#{e.id} · {e.location} · {labels[e.status]}{e.escalation_level > 0 ? ' · Escalated' : ''}</option>)}</select></label>
-    <MapBoundary><NetworkMap contexts={mapContexts} selectedId={selectedId} onSelect={choose} monitored={monitored} /></MapBoundary>
-    <LocationDetails context={selected} connected={online && connected} />
-    {selected && <>
-      <div className="map-actions"><button onClick={async () => setNotice(await copyText(selected.briefing) ? 'Location briefing copied' : 'Copy the briefing from the text box below')}>Copy location briefing</button></div>
-      <textarea aria-label="Text location briefing" readOnly value={selected.briefing} rows={4} />
-      <div className="map-notice"><strong>Share with a responder</strong><br />A read-only link to this alert's location. It doesn't call or message anyone; send it yourself.<br />Link: {selected.handoff?.state ?? 'unavailable'}</div>
-      <label>Map operator key <input type="password" autoComplete="off" value={operatorKey} onChange={(e) => { setOperatorKey(e.target.value); sessionStorage.setItem('mapOperatorKey', e.target.value) }} placeholder="MAP_OPERATOR_KEY from your .env" /></label>
-      <div className="map-actions"><button onClick={() => prepareLink()}>Prepare / reuse map link</button><button onClick={() => prepareLink(true)}>Renew link</button><button onClick={async () => { if (await command(`/maps/events/${selectedId}/link`, 'DELETE')) { setLink(null); setNotice('Link revoked') } }}>Revoke link</button></div>
-      {selected.handoff?.expires_at && <p className="map-caption">Link expires {when(selected.handoff.expires_at)}. Renewing invalidates the previous link.</p>}
-      {link && <><input aria-label="Restricted responder link" readOnly value={link} /><div className="map-actions"><button onClick={async () => setNotice(await copyText(link) ? 'Map link copied' : 'Select and copy the link above')}>Copy map link</button><a href={link} target="_blank" rel="noreferrer">Open responder view ↗</a></div></>}
-    </>}
-    <button className="map-config-toggle" onClick={() => setShowConfig(!showConfig)}>{showConfig ? 'Hide' : 'Change'} camera location</button>
-    {showConfig && event && <div className="map-config">
-      <p className="map-caption">Set the station for camera {event.camera_id} (future alerts) and this alert. Cameras default to Union Station.</p>
-      <label>Station<select value={stationId} onChange={(e) => setStationId(e.target.value)}><option value="">Location unavailable</option>{stations.map((s) => <option key={s.properties.PT_ID} value={s.properties.PT_ID}>{stationName(s.properties.PT_NAME)}</option>)}</select></label>
-      <label>Platform label<input value={platform} onChange={(e) => setPlatform(e.target.value)} placeholder="Optional; staff-provided" /></label>
-      <label>Direction<input value={direction} onChange={(e) => setDirection(e.target.value)} placeholder="Optional" /></label>
-      <label>Line<input value={line} onChange={(e) => setLine(e.target.value)} placeholder="Optional" /></label>
-      <label>Meeting point description<input value={meeting} onChange={(e) => setMeeting(e.target.value)} placeholder="Only enter a verified meeting point" /></label>
-      <label className="map-check"><input type="checkbox" checked={verified} onChange={(e) => setVerified(e.target.checked)} /> Staff verified this meeting point</label>
-      <div className="map-actions"><button disabled={Boolean(meeting) && !verified} onClick={async () => {
-        const metadata = location()
-        const saved = await command(`/maps/cameras/${encodeURIComponent(event.camera_id)}`, 'PUT', metadata)
-        if (saved && await command(`/maps/events/${selectedId}/location`, 'PUT', saved)) setNotice('Camera location saved')
-      }}>Save location</button></div>
-      <p className="map-caption">Station points are approximate. No platform or entrance coordinates are invented.</p>
-    </div>}
-    {notice && <p role="status" className="map-notice">{notice}</p>}{error && <p role="alert" className="map-warning">{error}</p>}
-  </aside>
+  return <div className="map-view">
+    <section className="map-main" aria-label="Incident map">
+      <div className="map-panel-heading"><div><p className="section-label">TTC LOCATION</p><h2 className="map-title">Incident map</h2></div><span className={online && connected ? 'map-online' : 'map-warning'}>{online && connected ? '● Connected' : '○ Reconnecting'}</span></div>
+      <MapBoundary><NetworkMap contexts={mapContexts} selectedId={selectedId} onSelect={choose} monitored={monitored} /></MapBoundary>
+    </section>
+    <aside className="map-side" aria-label="Alert location details">
+      <label className="field"><span>Alert details</span><select aria-label="Selected map incident" value={selectedId ?? ''} onChange={(e) => choose(Number(e.target.value))}><option value="" disabled>{events.length ? 'Select an alert' : 'No alerts yet'}</option>{events.map((e) => <option key={e.id} value={e.id}>#{e.id} · {e.location} · {labels[e.status]}{e.escalation_level > 0 ? ' · Escalated' : ''}</option>)}</select></label>
+      <LocationDetails context={selected} connected={online && connected} />
+      {selected && <>
+        <div className="map-actions"><button onClick={async () => setNotice(await copyText(selected.briefing) ? 'Location briefing copied' : 'Copy the briefing from the text box below')}>Copy location briefing</button></div>
+        <textarea aria-label="Text location briefing" readOnly value={selected.briefing} rows={4} />
+        <div className="map-notice"><strong>Share with a responder</strong><br />A read-only link to this alert's location. It doesn't call or message anyone; send it yourself.<br />Link: {selected.handoff?.state ?? 'unavailable'}</div>
+        <label className="field"><span>Map operator key</span><input type="password" autoComplete="off" value={operatorKey} onChange={(e) => { setOperatorKey(e.target.value); sessionStorage.setItem('mapOperatorKey', e.target.value) }} placeholder="MAP_OPERATOR_KEY from your .env" /></label>
+        <div className="map-actions"><button onClick={() => prepareLink()}>Prepare / reuse map link</button><button onClick={() => prepareLink(true)}>Renew link</button><button onClick={async () => { if (await command(`/maps/events/${selectedId}/link`, 'DELETE')) { setLink(null); setNotice('Link revoked') } }}>Revoke link</button></div>
+        {selected.handoff?.expires_at && <p className="map-caption">Link expires {when(selected.handoff.expires_at)}. Renewing invalidates the previous link.</p>}
+        {link && <><input aria-label="Restricted responder link" readOnly value={link} /><div className="map-actions"><button onClick={async () => setNotice(await copyText(link) ? 'Map link copied' : 'Select and copy the link above')}>Copy map link</button><a href={link} target="_blank" rel="noreferrer">Open responder view ↗</a></div></>}
+      </>}
+      <button className="map-config-toggle" onClick={() => setShowConfig(!showConfig)}>{showConfig ? 'Hide' : 'Change'} camera location</button>
+      {showConfig && event && <div className="map-config">
+        <p className="map-caption">Set the station for camera {event.camera_id} (future alerts) and this alert. Cameras default to Union Station.</p>
+        <label className="field"><span>Station</span><select value={stationId} onChange={(e) => setStationId(e.target.value)}><option value="">Location unavailable</option>{stations.map((s) => <option key={s.properties.PT_ID} value={s.properties.PT_ID}>{stationName(s.properties.PT_NAME)}</option>)}</select></label>
+        <label className="field"><span>Platform label</span><input value={platform} onChange={(e) => setPlatform(e.target.value)} placeholder="Optional; staff-provided" /></label>
+        <label className="field"><span>Direction</span><input value={direction} onChange={(e) => setDirection(e.target.value)} placeholder="Optional" /></label>
+        <label className="field"><span>Line</span><input value={line} onChange={(e) => setLine(e.target.value)} placeholder="Optional" /></label>
+        <label className="field"><span>Meeting point description</span><input value={meeting} onChange={(e) => setMeeting(e.target.value)} placeholder="Only enter a verified meeting point" /></label>
+        <label className="map-check"><input type="checkbox" checked={verified} onChange={(e) => setVerified(e.target.checked)} /> Staff verified this meeting point</label>
+        <div className="map-actions"><button disabled={Boolean(meeting) && !verified} onClick={async () => {
+          const metadata = location()
+          const saved = await command(`/maps/cameras/${encodeURIComponent(event.camera_id)}`, 'PUT', metadata)
+          if (saved && await command(`/maps/events/${selectedId}/location`, 'PUT', saved)) setNotice('Camera location saved')
+        }}>Save location</button></div>
+        <p className="map-caption">Station points are approximate. No platform or entrance coordinates are invented.</p>
+      </div>}
+      {notice && <p role="status" className="map-notice">{notice}</p>}{error && <p role="alert" className="map-warning">{error}</p>}
+    </aside>
+  </div>
 }

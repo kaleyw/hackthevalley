@@ -9,9 +9,16 @@ Examples:
 
 import argparse
 import csv
+import os
+import sys
 import threading
 import time
 from datetime import datetime, timedelta, timezone
+
+# On Windows, OpenCV's default webcam driver (MSMF) often fails to open or read frames;
+# DirectShow is steadier. Must be set before cv2 is imported.
+if sys.platform == "win32":
+    os.environ.setdefault("OPENCV_VIDEOIO_PRIORITY_MSMF", "0")
 
 import cv2
 import requests
@@ -20,6 +27,7 @@ from ultralytics import YOLO
 import config
 from detector import ALERTED, DOWN_PENDING, MONITORING, FallDetector
 from help_watch import HelpWatcher
+from stream import FrameHub, serve
 
 STATE_COLORS = {DOWN_PENDING: (0, 165, 255), ALERTED: (0, 0, 255)}  # BGR
 HELP_COLOR = (0, 200, 0)
@@ -78,7 +86,16 @@ def main():
     ap.add_argument("--model", default=config.MODEL)
     ap.add_argument("--no-show", action="store_true", help="don't open a preview window")
     ap.add_argument("--debug", action="store_true", help="show detector measurements on the video")
+    ap.add_argument("--stream-port", type=int, default=config.STREAM_PORT,
+                    help="serve the live preview for the dashboard on this port (0 = off)")
+    ap.add_argument("--stream-view", choices=["skeleton", "video"], default="skeleton",
+                    help="skeleton = blurred background with the pose overlay (privacy default); video = raw picture")
     args = ap.parse_args()
+
+    hub = FrameHub() if args.stream_port else None
+    if hub:
+        serve(hub, args.stream_port)
+        print(f"[camera] live preview for the dashboard on http://127.0.0.1:{args.stream_port}/stream.mjpg ({args.stream_view} view)")
 
     source = int(args.source) if args.source.isdigit() else args.source
     # Use video time for files so timings don't depend on how fast we process frames
@@ -107,7 +124,8 @@ def main():
     try:
         for i, r in enumerate(results):
             t = i / fps if fps else time.monotonic() - start
-            frame = r.plot()
+            # Skeleton view keeps faces and surroundings blurred; only the pose overlay is sharp
+            frame = r.plot(img=cv2.GaussianBlur(r.orig_img, (0, 0), 18)) if args.stream_view == "skeleton" else r.plot()
             boxes = {}
 
             if r.boxes is not None and r.boxes.id is not None and r.keypoints is not None:
@@ -167,6 +185,8 @@ def main():
                 send_help_detected(event_id)
             detector.forget_stale(t)
 
+            if hub:
+                hub.update(frame)
             if not args.no_show:
                 cv2.imshow("collapse detection (q to quit)", frame)
                 if cv2.waitKey(1) & 0xFF == ord("q"):
