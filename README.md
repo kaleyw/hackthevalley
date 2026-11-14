@@ -4,7 +4,7 @@
 
 HEADS-UP turns an existing security camera into a safety net. When someone collapses or falls in a transit station and doesn't get up, it asks bystanders nearby to check on them, alerts security staff, and tracks the alert until help has actually reached the person.
 
-Built at Hack the Valley for the **Project KAZE** challenge: *How might we help people stay safe and get assistance when they are no longer in a position to ask for help themselves?*
+🏆 **Winner at Hack the Valley.** Built for the **Project KAZE** challenge: *How might we help people stay safe and get assistance when they are no longer in a position to ask for help themselves?*
 
 ---
 
